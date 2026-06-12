@@ -7,7 +7,7 @@ import HomeScreen from './screens/HomeScreen';
 import ChartScreen from './screens/ChartScreen';
 
 const Stack = createStackNavigator();
-const SERVER_URL = 'https://your-backend-url.onrender.com'; // replace after deploy
+const SERVER_URL = 'https://crypto-signal-app-cvxw.onrender.com'; // replace after deploy
 
 export default function App() {
   const [signals, setSignals] = useState([]);
