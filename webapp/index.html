@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crypto Signals</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>🔥 Crypto Signals</h1>
+      <div class="auto-trade">
+        <span>Auto Trade</span>
+        <label class="switch">
+          <input type="checkbox" id="autoTradeToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </header>
+
+    <section id="signals">
+      <h2>High Confidence Signals</h2>
+      <div id="signalList"></div>
+    </section>
+
+    <section id="meme-coins">
+      <h2>🐶 New Solana Meme Coins</h2>
+      <div id="memeList"></div>
+    </section>
+
+    <div id="chartModal" class="modal">
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <canvas id="priceChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
