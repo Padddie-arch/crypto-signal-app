@@ -1,74 +1,39 @@
-const axios = require('axios');
+const ccxt = require('ccxt');
 const { rsi, macd } = require('technicalindicators');
 
-// Binance.US base URL (works from anywhere)
-const BINANCE_US_BASE = 'https://api.binance.us/api/v3/klines';
+// Create a Binance exchange instance (public data only, no API keys)
+const exchange = new ccxt.binance({
+  enableRateLimit: true,
+  options: {
+    defaultType: 'spot',
+    // Force IPv4 – often required on Render
+    family: 4
+  }
+});
 
-// Fallback Binance.com (may be geo-blocked, but we try it if US fails)
-const BINANCE_COM_BASE = 'https://api.binance.com/api/v3/klines';
-
-// Binance API wrapper (compatible with old code)
+// Keep compatibility with the old interface
 let binance = {
   options: function() { return this; }
 };
-const updateKeys = () => {}; // not needed for public data
-
-// Fetch candles using direct axios call
-async function getCandles(symbol, interval, limit) {
-  // Convert interval to Binance format (same as before)
-  const intervalMap = {
-    '15m': '15m',
-    '30m': '30m',
-    '1h': '1h',
-    '2h': '2h',
-    '4h': '4h',
-    '1d': '1d'
-  };
-  const binInterval = intervalMap[interval] || '15m';
-
-  // Try Binance.US first
-  try {
-    const response = await axios.get(BINANCE_US_BASE, {
-      params: {
-        symbol: symbol,
-        interval: binInterval,
-        limit: limit
-      },
-      timeout: 10000
-    });
-    return response.data;
-  } catch (err) {
-    // If US fails, try global Binance
-    console.log(`Binance.US failed for ${symbol}, trying Binance.com...`);
-    const response = await axios.get(BINANCE_COM_BASE, {
-      params: {
-        symbol: symbol,
-        interval: binInterval,
-        limit: limit
-      },
-      timeout: 10000
-    });
-    return response.data;
-  }
-}
+const updateKeys = () => {};
 
 async function getIndicators(symbol, interval = '15m', limit = 50) {
   try {
-    // Skip unsupported pairs
+    // Skip pairs that Binance doesn't have
     if (['XAUUSDT', 'XAGUSDT'].includes(symbol)) {
       console.log(`Skipping ${symbol} – not available on Binance`);
       return null;
     }
 
-    const candles = await getCandles(symbol, interval, limit);
-    if (!candles || candles.length < 20) {
+    // fetchOHLCV returns array of [timestamp, open, high, low, close, volume]
+    const ohlcv = await exchange.fetchOHLCV(symbol, interval, undefined, limit);
+    if (!ohlcv || ohlcv.length < 20) {
       console.error(`Not enough candles for ${symbol}`);
       return null;
     }
 
-    // candles is an array of arrays: [openTime, open, high, low, close, volume, ...]
-    const closes = candles.map(c => parseFloat(c[4]));
-    const volumes = candles.map(c => parseFloat(c[5]));
+    const closes = ohlcv.map(c => c[4]);
+    const volumes = ohlcv.map(c => c[5]);
 
     const rsiArray = rsi({ values: closes, period: 14 });
     const lastRsi = rsiArray[rsiArray.length - 1] || 50;
@@ -104,7 +69,7 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
       volumeSpike,
       ma20,
       priceVsMa: currentPrice > ma20 ? 'above' : 'below',
-      rawCandles: candles
+      rawCandles: ohlcv   // shape compatible with the rest of the code
     };
   } catch (err) {
     console.error(`Error fetching indicators for ${symbol}:`, err.message);
@@ -114,7 +79,7 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
 
 async function placeOrder(signal) {
   if (process.env.AUTO_TRADE_ENABLED !== 'true') return null;
-  console.log('Auto-trading is disabled – Binance.US API keys not configured.');
+  console.log('Auto-trading is not supported without verified Binance API keys.');
   return null;
 }
 
