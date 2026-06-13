@@ -1,76 +1,75 @@
-const axios = require('axios');
+const yahooFinance = require('yahoo-finance2').default;
 const { rsi, macd } = require('technicalindicators');
 
-// CoinGecko coin IDs for our pairs
-const COIN_IDS = {
-  'BTCUSDT': 'bitcoin',
-  'ETHUSDT': 'ethereum',
-  'SOLUSDT': 'solana',
-  'BNBUSDT': 'binancecoin',
-  'XRPUSDT': 'ripple'
-  // XAU, XAG not available
+// Yahoo Finance symbol mapping (our pair -> Yahoo symbol)
+const SYMBOL_MAP = {
+  'BTCUSDT': 'BTC-USD',
+  'ETHUSDT': 'ETH-USD',
+  'SOLUSDT': 'SOL-USD',
+  'BNBUSDT': 'BNB-USD',
+  'XRPUSDT': 'XRP-USD',
+  // Gold and silver not available on Yahoo Finance crypto, skip
+  'XAUUSDT': null,
+  'XAGUSDT': null
 };
 
-// Rate limiter: CoinGecko free allows ~30 req/min, we'll be safe with 1.5 sec between calls
-let lastRequestTime = 0;
-const MIN_INTERVAL = 1500; // 1.5 seconds
+// Interval mapping (our interval -> Yahoo Finance interval)
+const INTERVAL_MAP = {
+  '15m': '15m',
+  '30m': '30m',
+  '1h':  '1h',
+  '2h':  '2h',
+  '4h':  '1h',   // Yahoo doesn't have 4h, use 1h and we'll aggregate later (or just accept lower resolution)
+  '1d':  '1d'
+};
 
-async function rateLimitedGet(url, params) {
-  const now = Date.now();
-  const timeSinceLast = now - lastRequestTime;
-  if (timeSinceLast < MIN_INTERVAL) {
-    await new Promise(resolve => setTimeout(resolve, MIN_INTERVAL - timeSinceLast));
-  }
-  lastRequestTime = Date.now();
-  return axios.get(url, { params });
-}
-
-// Keep old interface
+// Keep old interface compatibility
 let binance = { options: function() { return this; } };
 const updateKeys = () => {};
 
 async function getIndicators(symbol, interval = '15m', limit = 50) {
   try {
-    if (['XAUUSDT', 'XAGUSDT'].includes(symbol)) {
-      console.log(`Skipping ${symbol} – not available on CoinGecko`);
+    const yahooSymbol = SYMBOL_MAP[symbol];
+    if (!yahooSymbol) {
+      console.log(`Skipping ${symbol} – not available on Yahoo Finance`);
       return null;
     }
 
-    const coinId = COIN_IDS[symbol];
-    if (!coinId) return null;
+    const yahooInterval = INTERVAL_MAP[interval] || '15m';
+    // For 4h we'll fetch 1h candles and later combine 4 of them (simple approach)
+    const fetchInterval = interval === '4h' ? '1h' : yahooInterval;
+    const fetchLimit = interval === '4h' ? limit * 4 : limit;
 
-    // Map interval to CoinGecko's 'days' parameter for OHLC
-    // CoinGecko OHLC gives 1 candle per interval; we request 'limit' candles
-    let days;
-    switch (interval) {
-      case '1d': days = limit; break;
-      case '4h': days = Math.ceil(limit * 4 / 24); break;
-      case '2h': days = Math.ceil(limit * 2 / 24); break;
-      case '1h': days = Math.ceil(limit / 24); break;
-      case '30m': days = Math.ceil(limit * 0.5 / 24); break;
-      case '15m': days = Math.ceil(limit * 0.25 / 24); break;
-      default: days = Math.ceil(limit / 24);
-    }
-    // Ensure at least 1 day
-    days = Math.max(1, days);
+    const queryOptions = {
+      period1: new Date(Date.now() - fetchLimit * getIntervalMs(fetchInterval) * 2), // enough back
+      interval: fetchInterval,
+      return: 'array'
+    };
 
-    const url = `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc`;
-    const response = await rateLimitedGet(url, {
-      vs_currency: 'usd',
-      days: days
-    });
+    const result = await yahooFinance.chart(yahooSymbol, queryOptions);
+    let candles = result.quotes.filter(q => q.open !== null).map(q => ({
+      date: q.date,
+      open: q.open,
+      high: q.high,
+      low: q.low,
+      close: q.close,
+      volume: q.volume
+    }));
 
-    const ohlcData = response.data; // array of [timestamp, open, high, low, close]
-    if (!ohlcData || ohlcData.length < 20) {
-      console.error(`Not enough OHLC data for ${symbol}`);
+    if (candles.length < 20) {
+      console.error(`Not enough candles for ${symbol}`);
       return null;
     }
 
-    // Take the last 'limit' candles
-    const candles = ohlcData.slice(-limit);
-    const closes = candles.map(c => c[4]);
-    const volumes = candles.map(() => 0); // CoinGecko OHLC doesn't include volume; we'll fake a constant
-    // Actually, CoinGecko OHLC doesn't give volume, so volumeSpike will be false. That's okay.
+    // If we needed 4h, aggregate 4x1h candles into one 4h candle
+    if (interval === '4h') {
+      candles = aggregateCandles(candles, 4);
+    }
+
+    // Take last 'limit' candles
+    candles = candles.slice(-limit);
+    const closes = candles.map(c => c.close);
+    const volumes = candles.map(c => c.volume);
 
     const rsiArray = rsi({ values: closes, period: 14 });
     const lastRsi = rsiArray[rsiArray.length - 1] || 50;
@@ -90,11 +89,9 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
     const lastSignal = signalLine[signalLine.length - 1] || 0;
     const macdHistogram = lastMacd - lastSignal;
 
-    // Volume: since we don't have real volume, we'll set volumeSpike to false
-    // but we still need volume array for compatibility
-    const volSma = 1;
-    const lastVolume = 1;
-    const volumeSpike = false;
+    const volSma = volumes.length > 10 ? volumes.slice(-10).reduce((a,b)=>a+b,0)/10 : volumes[volumes.length-1];
+    const lastVolume = volumes[volumes.length-1];
+    const volumeSpike = lastVolume > volSma * 1.5;
 
     const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a,b)=>a+b,0)/20 : closes[closes.length-1];
     const currentPrice = closes[closes.length-1];
@@ -108,7 +105,7 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
       volumeSpike,
       ma20,
       priceVsMa: currentPrice > ma20 ? 'above' : 'below',
-      rawCandles: candles   // array of [timestamp, o, h, l, c]
+      rawCandles: candles   // objects with { date, open, high, low, close, volume }
     };
   } catch (err) {
     console.error(`Error fetching indicators for ${symbol}:`, err.message);
@@ -116,9 +113,29 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
   }
 }
 
+function getIntervalMs(interval) {
+  const map = { '1m': 60000, '15m': 900000, '30m': 1800000, '1h': 3600000, '1d': 86400000 };
+  return map[interval] || 900000;
+}
+
+function aggregateCandles(candles, factor) {
+  const aggregated = [];
+  for (let i = 0; i < candles.length; i += factor) {
+    const chunk = candles.slice(i, i + factor);
+    if (chunk.length === 0) continue;
+    const open = chunk[0].open;
+    const close = chunk[chunk.length - 1].close;
+    const high = Math.max(...chunk.map(c => c.high));
+    const low = Math.min(...chunk.map(c => c.low));
+    const volume = chunk.reduce((sum, c) => sum + c.volume, 0);
+    aggregated.push({ date: chunk[0].date, open, high, low, close, volume });
+  }
+  return aggregated;
+}
+
 async function placeOrder(signal) {
   if (process.env.AUTO_TRADE_ENABLED !== 'true') return null;
-  console.log('Auto-trading is not yet connected to an exchange.');
+  console.log('Auto-trading is not connected to an exchange.');
   return null;
 }
 
