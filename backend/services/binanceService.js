@@ -1,4 +1,4 @@
-﻿const Binance = require('node-binance-api');
+const Binance = require('node-binance-api');
 const { rsi, macd } = require('technicalindicators');
 
 let binance = new Binance().options({
@@ -12,15 +12,14 @@ const updateKeys = (apiKey, secretKey) => {
 
 async function getIndicators(symbol, interval = '15m', limit = 50) {
   try {
-    const candles = await binance.candlesticks(symbol, interval, false, { limit });
+    // FIXED: call candlesticks with only (symbol, interval, { limit })
+    const candles = await binance.candlesticks(symbol, interval, { limit });
     const closes = candles.map(c => parseFloat(c[4]));
     const volumes = candles.map(c => parseFloat(c[5]));
 
-    // Calculate RSI (14 period)
     const rsiArray = rsi({ values: closes, period: 14 });
     const lastRsi = rsiArray[rsiArray.length - 1] || 50;
 
-    // Calculate MACD
     const macdResult = macd({
       values: closes,
       fastPeriod: 12,
@@ -38,12 +37,10 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
     const lastSignal = signalLine[signalLine.length - 1] || 0;
     const macdHistogram = lastMacd - lastSignal;
 
-    // Volume moving average (simple)
     const volSma = volumes.length > 10 ? volumes.slice(-10).reduce((a,b)=>a+b,0)/10 : volumes[volumes.length-1];
     const lastVolume = volumes[volumes.length-1];
     const volumeSpike = lastVolume > volSma * 1.5;
 
-    // Simple MA (20)
     const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a,b)=>a+b,0)/20 : closes[closes.length-1];
     const currentPrice = closes[closes.length-1];
 
