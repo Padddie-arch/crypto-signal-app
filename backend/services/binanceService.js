@@ -1,61 +1,43 @@
-const axios = require('axios');
+const Binance = require('node-binance-api');
 const { rsi, macd } = require('technicalindicators');
 
-// CoinCap asset IDs mapping (our symbol -> CoinCap baseId)
-const SYMBOL_MAP = {
-  'BTCUSDT': { baseId: 'bitcoin', quoteId: 'tether' },
-  'ETHUSDT': { baseId: 'ethereum', quoteId: 'tether' },
-  'SOLUSDT': { baseId: 'solana', quoteId: 'tether' },
-  'BNBUSDT': { baseId: 'binance-coin', quoteId: 'tether' },
-  'XRPUSDT': { baseId: 'xrp', quoteId: 'tether' },
-  'XAUUSDT': { baseId: 'xau', quoteId: 'tether' },
-  'XAGUSDT': { baseId: 'xag', quoteId: 'tether' }
-};
+// Use Binance.US – it's accessible from Render and doesn't geo-block
+let binance = new Binance().options({
+  APIKEY: process.env.BINANCE_API_KEY,     // not needed for public data, but kept for future auto-trading
+  APISECRET: process.env.BINANCE_SECRET_KEY,
+  useServerTime: true,
+  recvWindow: 60000,
+  verbose: false,
+  urls: {
+    base: 'https://api.binance.us/api/',   // <-- the magic line
+    stream: 'wss://stream.binance.us:9443/ws/',
+  }
+});
 
-// CoinCap interval mapping
-const INTERVAL_MAP = {
-  '15m': 'm15',
-  '30m': 'm30',
-  '1h':  'h1',
-  '2h':  'h2',
-  '4h':  'h4',
-  '1d':  'd1'
+const updateKeys = (apiKey, secretKey) => {
+  binance = new Binance().options({
+    APIKEY: apiKey,
+    APISECRET: secretKey,
+    useServerTime: true,
+    recvWindow: 60000,
+    urls: {
+      base: 'https://api.binance.us/api/',
+      stream: 'wss://stream.binance.us:9443/ws/',
+    }
+  });
 };
-
-// Binance compatible interface
-let binance = {
-  options: function(opts) { return this; }
-};
-const updateKeys = () => {}; // not needed for CoinCap
 
 async function getIndicators(symbol, interval = '15m', limit = 50) {
   try {
-    const mapping = SYMBOL_MAP[symbol];
-    if (!mapping) {
-      console.error(`No CoinCap mapping for ${symbol}`);
+    // Remove unsupported pairs for Binance.US
+    if (['XAUUSDT', 'XAGUSDT'].includes(symbol)) {
+      console.log(`Skipping ${symbol} – not available on Binance.US`);
       return null;
     }
-    const capInterval = INTERVAL_MAP[interval] || 'm15';
 
-    // CoinCap candles endpoint
-    const url = `https://api.coincap.io/v2/candles`;
-    const response = await axios.get(url, {
-      params: {
-        exchange: 'binance',
-        interval: capInterval,
-        baseId: mapping.baseId,
-        quoteId: mapping.quoteId,
-        limit: limit
-      },
-      headers: { 'User-Agent': 'crypto-signal-app' }
-    });
-
-    const candles = response.data.data;
-    if (!candles || candles.length < 20) return null;
-
-    // CoinCap returns: { open, high, low, close, volume, period }
-    const closes = candles.map(c => parseFloat(c.close));
-    const volumes = candles.map(c => parseFloat(c.volume));
+    const candles = await binance.candlesticks(symbol, interval, { limit });
+    const closes = candles.map(c => parseFloat(c[4]));
+    const volumes = candles.map(c => parseFloat(c[5]));
 
     const rsiArray = rsi({ values: closes, period: 14 });
     const lastRsi = rsiArray[rsiArray.length - 1] || 50;
@@ -75,15 +57,11 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
     const lastSignal = signalLine[signalLine.length - 1] || 0;
     const macdHistogram = lastMacd - lastSignal;
 
-    const volSma = volumes.length > 10
-      ? volumes.slice(-10).reduce((a,b)=>a+b,0)/10
-      : volumes[volumes.length-1];
+    const volSma = volumes.length > 10 ? volumes.slice(-10).reduce((a,b)=>a+b,0)/10 : volumes[volumes.length-1];
     const lastVolume = volumes[volumes.length-1];
     const volumeSpike = lastVolume > volSma * 1.5;
 
-    const ma20 = closes.length >= 20
-      ? closes.slice(-20).reduce((a,b)=>a+b,0)/20
-      : closes[closes.length-1];
+    const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a,b)=>a+b,0)/20 : closes[closes.length-1];
     const currentPrice = closes[closes.length-1];
 
     return {
@@ -95,7 +73,7 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
       volumeSpike,
       ma20,
       priceVsMa: currentPrice > ma20 ? 'above' : 'below',
-      rawCandles: candles   // we keep the raw candles for AI prediction
+      rawCandles: candles
     };
   } catch (err) {
     console.error(`Error fetching indicators for ${symbol}:`, err.message);
@@ -103,11 +81,15 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
   }
 }
 
-// Place a real order – we keep this stub, but it won't work without Binance keys.
 async function placeOrder(signal) {
   if (process.env.AUTO_TRADE_ENABLED !== 'true') return null;
-  console.log('Auto-trading is only available with Binance API keys.');
-  return null;
+  try {
+    const order = await binance.marketBuy(signal.symbol, signal.quantity || 0.001);
+    return order;
+  } catch (err) {
+    console.error('Order error:', err.message);
+    return null;
+  }
 }
 
 module.exports = { getIndicators, updateKeys, placeOrder };
