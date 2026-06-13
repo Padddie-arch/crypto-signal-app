@@ -13,6 +13,7 @@ const tradeHistory = require('./models/tradeHistory');
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static('webapp'));
 const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: "*" } });
 
