@@ -1,26 +1,32 @@
 const axios = require('axios');
 
-// Use free CoinGecko API to discover new Solana meme coins
+let lastRequestTime = 0;
+const MIN_INTERVAL = 3000; // 3 seconds between CoinGecko requests
+
+async function rateLimitedGet(url, params) {
+  const now = Date.now();
+  const timeSinceLast = now - lastRequestTime;
+  if (timeSinceLast < MIN_INTERVAL) {
+    await new Promise(resolve => setTimeout(resolve, MIN_INTERVAL - timeSinceLast));
+  }
+  lastRequestTime = Date.now();
+  return axios.get(url, { params });
+}
+
 async function findNewSolanaMemeCoins() {
-  // Wait 3 seconds to avoid rate limiting (important on free Render)
-  await new Promise(resolve => setTimeout(resolve, 3000));
   try {
-    const res = await axios.get('https://api.coingecko.com/api/v3/coins/markets', {
-      params: {
-        vs_currency: 'usd',
-        category: 'solana-ecosystem',
-        order: 'market_cap_desc',
-        per_page: 10,
-        page: 1
-      }
+    const res = await rateLimitedGet('https://api.coingecko.com/api/v3/coins/markets', {
+      vs_currency: 'usd',
+      category: 'solana-ecosystem',
+      order: 'market_cap_desc',
+      per_page: 10,
+      page: 1,
+      sparkline: false
     });
     const coins = res.data;
-    // Filter for meme-like names (very basic)
     const memeKeywords = ['meme', 'dog', 'cat', 'pepe', 'woof', 'inu', 'shib', 'bonk', 'wif'];
     const memeCoins = coins
-      .filter(c =>
-        memeKeywords.some(kw => c.name.toLowerCase().includes(kw) || c.symbol.toLowerCase().includes(kw))
-      )
+      .filter(c => memeKeywords.some(kw => c.name.toLowerCase().includes(kw) || c.symbol.toLowerCase().includes(kw)))
       .map(c => ({
         name: c.name,
         symbol: c.symbol,
@@ -28,12 +34,7 @@ async function findNewSolanaMemeCoins() {
         marketCap: c.market_cap,
         volume24h: c.total_volume,
         priceChange24h: c.price_change_percentage_24h,
-        probability: Math.min(
-          85,
-          30 +
-            (c.price_change_percentage_24h > 5 ? 30 : 10) +
-            (c.total_volume > 1e6 ? 20 : 0)
-        )
+        probability: Math.min(85, 30 + (c.price_change_percentage_24h > 5 ? 30 : 10) + (c.total_volume > 1e6 ? 20 : 0))
       }));
     return memeCoins;
   } catch (err) {
