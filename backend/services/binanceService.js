@@ -1,72 +1,113 @@
-const yahooFinance = require('yahoo-finance2').default;
+const axios = require('axios');
 const { rsi, macd } = require('technicalindicators');
 
-// Yahoo Finance symbol mapping (our pair -> Yahoo symbol)
+// Yahoo Finance crypto symbols (pair -> Yahoo symbol)
 const SYMBOL_MAP = {
   'BTCUSDT': 'BTC-USD',
   'ETHUSDT': 'ETH-USD',
   'SOLUSDT': 'SOL-USD',
   'BNBUSDT': 'BNB-USD',
-  'XRPUSDT': 'XRP-USD',
-  // Gold and silver not available on Yahoo Finance crypto, skip
-  'XAUUSDT': null,
-  'XAGUSDT': null
+  'XRPUSDT': 'XRP-USD'
+  // Gold/Silver not available via Yahoo crypto
 };
 
-// Interval mapping (our interval -> Yahoo Finance interval)
-const INTERVAL_MAP = {
-  '15m': '15m',
-  '30m': '30m',
-  '1h':  '1h',
-  '2h':  '2h',
-  '4h':  '1h',   // Yahoo doesn't have 4h, use 1h and we'll aggregate later (or just accept lower resolution)
-  '1d':  '1d'
+// Interval mapping for Yahoo v8 API (uses 'range' and 'interval')
+const INTERVAL_CONFIG = {
+  '15m': { range: '1d', interval: '15m' },
+  '30m': { range: '5d', interval: '30m' },
+  '1h':  { range: '5d', interval: '1h' },
+  '2h':  { range: '10d', interval: '1h' },  // Use 1h candles and we'll combine 2 later
+  '4h':  { range: '60d', interval: '1h' },  // Use 1h candles and combine 4
+  '1d':  { range: '3mo', interval: '1d' }
 };
 
 // Keep old interface compatibility
 let binance = { options: function() { return this; } };
 const updateKeys = () => {};
 
+// Helper to get milliseconds for an interval string
+function intervalMs(interval) {
+  const map = { '1m': 60000, '15m': 900000, '30m': 1800000, '1h': 3600000, '1d': 86400000 };
+  return map[interval] || 900000;
+}
+
+// Aggregate smaller candles into larger ones
+function aggregateCandles(candles, factor) {
+  const result = [];
+  for (let i = 0; i < candles.length; i += factor) {
+    const chunk = candles.slice(i, i + factor);
+    if (chunk.length === 0) continue;
+    result.push({
+      date: chunk[0].date,
+      open: chunk[0].open,
+      high: Math.max(...chunk.map(c => c.high)),
+      low: Math.min(...chunk.map(c => c.low)),
+      close: chunk[chunk.length - 1].close,
+      volume: chunk.reduce((s, c) => s + c.volume, 0)
+    });
+  }
+  return result;
+}
+
 async function getIndicators(symbol, interval = '15m', limit = 50) {
   try {
     const yahooSymbol = SYMBOL_MAP[symbol];
     if (!yahooSymbol) {
+      // Skip unsupported (XAU, XAG)
       console.log(`Skipping ${symbol} – not available on Yahoo Finance`);
       return null;
     }
 
-    const yahooInterval = INTERVAL_MAP[interval] || '15m';
-    // For 4h we'll fetch 1h candles and later combine 4 of them (simple approach)
-    const fetchInterval = interval === '4h' ? '1h' : yahooInterval;
-    const fetchLimit = interval === '4h' ? limit * 4 : limit;
+    let config = INTERVAL_CONFIG[interval] || INTERVAL_CONFIG['15m'];
+    let range = config.range;
+    let fetchInterval = config.interval;
 
-    const queryOptions = {
-      period1: new Date(Date.now() - fetchLimit * getIntervalMs(fetchInterval) * 2), // enough back
-      interval: fetchInterval,
-      return: 'array'
-    };
+    // Yahoo v8 chart API
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}`;
+    const response = await axios.get(url, {
+      params: {
+        range: range,
+        interval: fetchInterval,
+        includePrePost: false
+      },
+      timeout: 15000
+    });
 
-    const result = await yahooFinance.chart(yahooSymbol, queryOptions);
-    let candles = result.quotes.filter(q => q.open !== null).map(q => ({
-      date: q.date,
-      open: q.open,
-      high: q.high,
-      low: q.low,
-      close: q.close,
-      volume: q.volume
-    }));
+    const result = response.data?.chart?.result?.[0];
+    if (!result) {
+      console.error(`No data from Yahoo for ${symbol}`);
+      return null;
+    }
+
+    const timestamps = result.timestamp;
+    const quote = result.indicators.quote[0];
+    // Build candle objects
+    let candles = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      if (quote.open[i] === null) continue; // skip null entries
+      candles.push({
+        date: new Date(timestamps[i] * 1000),
+        open: quote.open[i],
+        high: quote.high[i],
+        low: quote.low[i],
+        close: quote.close[i],
+        volume: quote.volume[i] || 0
+      });
+    }
 
     if (candles.length < 20) {
       console.error(`Not enough candles for ${symbol}`);
       return null;
     }
 
-    // If we needed 4h, aggregate 4x1h candles into one 4h candle
-    if (interval === '4h') {
+    // For 2h and 4h, aggregate from 1h candles
+    if (interval === '2h') {
+      candles = aggregateCandles(candles, 2);
+    } else if (interval === '4h') {
       candles = aggregateCandles(candles, 4);
     }
 
-    // Take last 'limit' candles
+    // Take the last 'limit' candles
     candles = candles.slice(-limit);
     const closes = candles.map(c => c.close);
     const volumes = candles.map(c => c.volume);
@@ -105,7 +146,7 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
       volumeSpike,
       ma20,
       priceVsMa: currentPrice > ma20 ? 'above' : 'below',
-      rawCandles: candles   // objects with { date, open, high, low, close, volume }
+      rawCandles: candles
     };
   } catch (err) {
     console.error(`Error fetching indicators for ${symbol}:`, err.message);
@@ -113,29 +154,9 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
   }
 }
 
-function getIntervalMs(interval) {
-  const map = { '1m': 60000, '15m': 900000, '30m': 1800000, '1h': 3600000, '1d': 86400000 };
-  return map[interval] || 900000;
-}
-
-function aggregateCandles(candles, factor) {
-  const aggregated = [];
-  for (let i = 0; i < candles.length; i += factor) {
-    const chunk = candles.slice(i, i + factor);
-    if (chunk.length === 0) continue;
-    const open = chunk[0].open;
-    const close = chunk[chunk.length - 1].close;
-    const high = Math.max(...chunk.map(c => c.high));
-    const low = Math.min(...chunk.map(c => c.low));
-    const volume = chunk.reduce((sum, c) => sum + c.volume, 0);
-    aggregated.push({ date: chunk[0].date, open, high, low, close, volume });
-  }
-  return aggregated;
-}
-
 async function placeOrder(signal) {
   if (process.env.AUTO_TRADE_ENABLED !== 'true') return null;
-  console.log('Auto-trading is not connected to an exchange.');
+  console.log('Auto-trading is not connected to an exchange yet.');
   return null;
 }
 
