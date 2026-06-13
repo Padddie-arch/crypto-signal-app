@@ -1,10 +1,11 @@
-﻿const binanceService = require('./binanceService');
+const binanceService = require('./binanceService');
 const solanaService = require('./solanaService');
 const tradeHistory = require('../models/tradeHistory');
 const notificationService = require('./notificationService');
 
 let latestSignals = [];
 
+// Simple AI prediction based on linear regression over last N prices
 function predictTrend(prices) {
   const n = prices.length;
   if (n < 5) return 0;
@@ -16,14 +17,15 @@ function predictTrend(prices) {
     sumX2 += i * i;
   }
   const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-  return slope;
+  return slope; // positive slope = uptrend
 }
 
+// Calculate confidence score (0-100)
 function confidenceScore(rsi, macdHistogram, volumeSpike, trendSlope, priceVsMa) {
   let score = 50;
-  if (rsi < 30) score += 15;
+  if (rsi < 30) score += 15; // oversold
   else if (rsi < 40) score += 10;
-  else if (rsi > 70) score -= 15;
+  else if (rsi > 70) score -= 15; // overbought
   else if (rsi > 60) score -= 5;
   if (macdHistogram > 0) score += 10; else score -= 10;
   if (volumeSpike) score += 10;
@@ -32,6 +34,7 @@ function confidenceScore(rsi, macdHistogram, volumeSpike, trendSlope, priceVsMa)
   return Math.max(0, Math.min(100, score));
 }
 
+// Generate signals for all pairs
 async function generateAll() {
   const pairs = [
     { symbol: 'BTCUSDT', name: 'BTC/USD' },
@@ -49,7 +52,12 @@ async function generateAll() {
     for (const tf of timeframes) {
       const indicators = await binanceService.getIndicators(pair.symbol, tf);
       if (!indicators) continue;
-      const trendSlope = predictTrend(indicators.rawCandles.slice(-20).map(c => parseFloat(c[4])));
+
+      // ‼️ THIS IS THE ONLY LINE THAT CHANGED ‼️
+      // Use the new candle objects: each candle has a .close property
+      const closePrices = indicators.rawCandles.slice(-20).map(c => c.close);
+      const trendSlope = predictTrend(closePrices);
+
       const conf = confidenceScore(
         indicators.rsi,
         indicators.macdHistogram,
@@ -57,6 +65,7 @@ async function generateAll() {
         trendSlope,
         indicators.priceVsMa
       );
+      // Only high confidence trades (>=70) go through
       if (conf >= 70) {
         const direction = trendSlope > 0 ? 'BUY' : 'SELL';
         const stopLoss = indicators.price * (direction === 'BUY' ? 0.98 : 1.02);
@@ -84,14 +93,14 @@ async function generateAll() {
     }
   }
 
+  // Also find new Solana meme coin alerts
   let memeCoins = [];
-try {
-  // Add a small delay to avoid hitting CoinGecko rate limit
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  memeCoins = await solanaService.findNewSolanaMemeCoins();
-} catch (err) {
-  console.log('Solana meme coins skipped:', err.message);
-}
+  try {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    memeCoins = await solanaService.findNewSolanaMemeCoins();
+  } catch (err) {
+    console.log('Solana meme coins skipped:', err.message);
+  }
   if (memeCoins.length > 0) {
     memeCoins.forEach(coin => {
       const signal = {
