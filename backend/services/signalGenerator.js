@@ -84,7 +84,14 @@ async function generateAll() {
     }
   }
 
-  const memeCoins = await solanaService.findNewSolanaMemeCoins();
+  let memeCoins = [];
+try {
+  // Add a small delay to avoid hitting CoinGecko rate limit
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  memeCoins = await solanaService.findNewSolanaMemeCoins();
+} catch (err) {
+  console.log('Solana meme coins skipped:', err.message);
+}
   if (memeCoins.length > 0) {
     memeCoins.forEach(coin => {
       const signal = {
