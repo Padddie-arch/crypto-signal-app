@@ -1,5 +1,5 @@
 // ⚠️ Replace with YOUR Render URL (the one that ends with onrender.com)
-const SERVER_URL = 'https://your-backend-url.onrender.com';
+const SERVER_URL = 'https://crypto-signal-app-cvxw.onrender.com';
 
 let signals = [];
 let memeCoins = [];
