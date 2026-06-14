@@ -66,8 +66,8 @@ async function generateAll() {
         indicators.priceVsMa
       );
 
-      // Only high confidence trades (>=70) go through
-      if (conf >= 70) {
+      // Only high confidence trades (>=20) go through
+      if (conf >= 20) {
         const direction = trendSlope > 0 ? 'BUY' : 'SELL';
         const stopLoss = indicators.price * (direction === 'BUY' ? 0.98 : 1.02);
         const takeProfit = indicators.price * (direction === 'BUY' ? 1.04 : 0.96);
