@@ -1,21 +1,11 @@
-const axios = require('axios');
-
-let lastRequestTime = 0;
-const MIN_INTERVAL = 3000; // 3 seconds between CoinGecko requests
-
-async function rateLimitedGet(url, params) {
-  const now = Date.now();
-  const timeSinceLast = now - lastRequestTime;
-  if (timeSinceLast < MIN_INTERVAL) {
-    await new Promise(resolve => setTimeout(resolve, MIN_INTERVAL - timeSinceLast));
-  }
-  lastRequestTime = Date.now();
-  return axios.get(url, { params });
-}
+const { coinGeckoGet } = require('./rateLimiter');
 
 async function findNewSolanaMemeCoins() {
   try {
-    const res = await rateLimitedGet('https://api.coingecko.com/api/v3/coins/markets', {
+    // Small extra internal delay to be extra safe (optional, but harmless)
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const res = await coinGeckoGet('https://api.coingecko.com/api/v3/coins/markets', {
       vs_currency: 'usd',
       category: 'solana-ecosystem',
       order: 'market_cap_desc',
