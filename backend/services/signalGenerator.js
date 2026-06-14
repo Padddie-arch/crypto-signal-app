@@ -17,15 +17,15 @@ function predictTrend(prices) {
     sumX2 += i * i;
   }
   const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-  return slope; // positive slope = uptrend
+  return slope;
 }
 
 // Calculate confidence score (0-100)
 function confidenceScore(rsi, macdHistogram, volumeSpike, trendSlope, priceVsMa) {
   let score = 50;
-  if (rsi < 30) score += 15; // oversold
+  if (rsi < 30) score += 15;
   else if (rsi < 40) score += 10;
-  else if (rsi > 70) score -= 15; // overbought
+  else if (rsi > 70) score -= 15;
   else if (rsi > 60) score -= 5;
   if (macdHistogram > 0) score += 10; else score -= 10;
   if (volumeSpike) score += 10;
@@ -41,11 +41,12 @@ async function generateAll() {
     { symbol: 'ETHUSDT', name: 'ETH/USD' },
     { symbol: 'SOLUSDT', name: 'SOL/USD' },
     { symbol: 'BNBUSDT', name: 'BNB/USD' },
-    { symbol: 'XRPUSDT', name: 'XRP/USD' },
-    { symbol: 'XAUUSDT', name: 'XAU/USD' },
-    { symbol: 'XAGUSDT', name: 'XAG/USD' }
+    { symbol: 'XRPUSDT', name: 'XRP/USD' }
+    // Gold / Silver not available on CoinGecko OHLC, skipped
   ];
-  const timeframes = ['15m', '30m', '1h', '2h', '4h', '1d'];
+
+  // Reduced timeframes to keep within CoinGecko rate limits (4 timeframes × 5 pairs = 20 calls, safe)
+  const timeframes = ['15m', '1h', '4h', '1d'];
   const freshSignals = [];
 
   for (const pair of pairs) {
@@ -53,8 +54,7 @@ async function generateAll() {
       const indicators = await binanceService.getIndicators(pair.symbol, tf);
       if (!indicators) continue;
 
-      // ‼️ THIS IS THE ONLY LINE THAT CHANGED ‼️
-      // Use the new candle objects: each candle has a .close property
+      // Extract close prices from the candle objects
       const closePrices = indicators.rawCandles.slice(-20).map(c => c.close);
       const trendSlope = predictTrend(closePrices);
 
@@ -65,6 +65,7 @@ async function generateAll() {
         trendSlope,
         indicators.priceVsMa
       );
+
       // Only high confidence trades (>=70) go through
       if (conf >= 70) {
         const direction = trendSlope > 0 ? 'BUY' : 'SELL';
@@ -93,14 +94,16 @@ async function generateAll() {
     }
   }
 
-  // Also find new Solana meme coin alerts
+  // Solana meme coins (with rate limit handling)
   let memeCoins = [];
   try {
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Already rate-limited in solanaService, but add a little extra delay
+    await new Promise(resolve => setTimeout(resolve, 3000));
     memeCoins = await solanaService.findNewSolanaMemeCoins();
   } catch (err) {
     console.log('Solana meme coins skipped:', err.message);
   }
+
   if (memeCoins.length > 0) {
     memeCoins.forEach(coin => {
       const signal = {
