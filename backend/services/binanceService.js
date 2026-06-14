@@ -1,6 +1,5 @@
-const axios = require('axios');
+const { coinGeckoGet } = require('./rateLimiter');
 
-// CoinGecko coin IDs
 const COIN_IDS = {
   BTCUSDT: 'bitcoin',
   ETHUSDT: 'ethereum',
@@ -8,25 +7,6 @@ const COIN_IDS = {
   BNBUSDT: 'binancecoin',
   XRPUSDT: 'ripple'
 };
-
-// Rate limiter: ensure at least 2.5s between all CoinGecko calls
-let lastRequestTime = 0;
-const MIN_GAP = 2500;
-
-async function rateLimitedGet(url, params) {
-  const now = Date.now();
-  const wait = lastRequestTime + MIN_GAP - now;
-  if (wait > 0) await new Promise(r => setTimeout(r, wait));
-  lastRequestTime = Date.now();
-  try {
-    const res = await axios.get(url, { params, timeout: 15000 });
-    lastRequestTime = Date.now(); // update after response
-    return res;
-  } catch (err) {
-    lastRequestTime = Date.now();
-    throw err;
-  }
-}
 
 // Calculate RSI
 function calcRSI(closes, period = 14) {
@@ -75,7 +55,6 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
   if (!COIN_IDS[symbol]) return null;
   const coinId = COIN_IDS[symbol];
 
-  // Map interval to days parameter for CoinGecko OHLC
   let days;
   switch (interval) {
     case '1d': days = limit; break;
@@ -88,20 +67,16 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
 
   try {
     const url = `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc`;
-    const res = await rateLimitedGet(url, {
-      vs_currency: 'usd',
-      days: days
-    });
-    const ohlc = res.data; // array of [timestamp, open, high, low, close]
+    const res = await coinGeckoGet(url, { vs_currency: 'usd', days: days });
+    const ohlc = res.data;
     if (!ohlc || ohlc.length < 20) return null;
 
     const closes = ohlc.map(c => c[4]);
-    const volumes = ohlc.map(() => 0); // CoinGecko OHLC lacks volume, but we can fake
+    const volumes = ohlc.map(() => 0);
     const rsi = calcRSI(closes, 14);
     const { macd: macdLine, signal: signalLine, histogram } = calcMACD(closes);
     const currentPrice = closes[closes.length - 1];
     const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a, b) => a + b, 0) / 20 : currentPrice;
-    const volumeSpike = false; // no real volume
 
     return {
       price: currentPrice,
@@ -109,7 +84,7 @@ async function getIndicators(symbol, interval = '15m', limit = 50) {
       macd: macdLine,
       macdSignal: signalLine,
       macdHistogram: histogram,
-      volumeSpike,
+      volumeSpike: false,
       ma20,
       priceVsMa: currentPrice > ma20 ? 'above' : 'below',
       rawCandles: ohlc.map(c => ({ timestamp: c[0], open: c[1], high: c[2], low: c[3], close: c[4], volume: 0 }))
