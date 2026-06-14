@@ -1,10 +1,12 @@
 {
   "name": "Crypto Signals",
   "short_name": "Crypto",
-  "start_url": "/",
+  "description": "High‑confidence crypto trading signals with stop loss, take profit, and Solana meme coin alerts.",
+  "start_url": "https://crypto-signal-app-cvxw.onrender.com",
   "display": "standalone",
   "background_color": "#0f0f1a",
   "theme_color": "#0f0f1a",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "https://via.placeholder.com/192x192.png?text=CS",
