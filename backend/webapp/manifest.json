@@ -7,6 +7,7 @@
   "background_color": "#0f0f1a",
   "theme_color": "#0f0f1a",
   "orientation": "portrait",
+  "id": "https://crypto-signal-app-cvxw.onrender.com",
   "icons": [
     {
       "src": "https://via.placeholder.com/192x192.png?text=CS",
@@ -16,6 +17,13 @@
     {
       "src": "https://via.placeholder.com/512x512.png?text=CS",
       "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "https://via.placeholder.com/360x640.png?text=Signal+Screen",
+      "sizes": "360x640",
       "type": "image/png"
     }
   ]
