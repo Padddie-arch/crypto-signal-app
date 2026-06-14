@@ -39,6 +39,24 @@
     </div>
   </div>
 
+    <!-- OneSignal -->
+  <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+  <script>
+    window.OneSignal = window.OneSignal || [];
+    OneSignal.push(function() {
+      OneSignal.init({
+        appId: "YOUR_ONESIGNAL_APP_ID",
+        notifyButton: {
+          enable: false   // we won't show the bell icon; notifications will use the browser prompt
+        },
+        allowLocalhostAsSecureOrigin: true   // for testing, remove in production
+      });
+      // Automatically prompt for notification permission
+      OneSignal.showSlidedownPrompt();
+    });
+  </script>
+  <!-- End OneSignal -->
+
   <script src="app.js"></script>
 </body>
 </html>
