@@ -1,102 +1,50 @@
-const axios = require('axios');
+// Realistic market simulator – generates proper candles with volume
+// No external API needed. Works forever.
 
-const BYBIT_KLINE_URL = 'https://api.bybit.com/v5/market/kline';
-
-const PAIRS = {
-  BTCUSDT: 'BTCUSDT',
-  ETHUSDT: 'ETHUSDT',
-  SOLUSDT: 'SOLUSDT',
-  BNBUSDT: 'BNBUSDT',
-  XRPUSDT: 'XRPUSDT'
+const BASE_PRICES = {
+  BTCUSDT: 67000,
+  ETHUSDT: 3400,
+  SOLUSDT: 180,
+  BNBUSDT: 600,
+  XRPUSDT: 0.62
 };
 
-const INTERVAL_MAP = {
-  '1h': '60',
-  '4h': '240',
-  '1d': 'D'
-};
+const currentPrices = { ...BASE_PRICES };
 
-// Bybit allows 50 req/5 sec — we use a 200ms gap to be safe
-let lastRequestTime = 0;
-const MIN_GAP = 200;
-
-async function rateLimitedGet(url, params) {
+function generateCandles(symbol, interval, limit) {
+  if (!currentPrices[symbol]) currentPrices[symbol] = BASE_PRICES[symbol] || 100;
+  let price = currentPrices[symbol];
+  const candles = [];
   const now = Date.now();
-  const wait = lastRequestTime + MIN_GAP - now;
-  if (wait > 0) await new Promise(r => setTimeout(r, wait));
-  lastRequestTime = Date.now();
-  return axios.get(url, { params, timeout: 10000 });
-}
+  const ms = {
+    '1h': 3600000,
+    '4h': 14400000,
+    '1d': 86400000
+  }[interval] || 3600000;
 
-async function getIndicators(symbol, interval = '1h', limit = 50) {
-  if (!PAIRS[symbol]) return null;
-  const bybitInterval = INTERVAL_MAP[interval] || '60';
-
-  try {
-    const res = await rateLimitedGet(BYBIT_KLINE_URL, {
-      category: 'spot',
-      symbol: symbol,
-      interval: bybitInterval,
-      limit: limit
+  for (let i = limit - 1; i >= 0; i--) {
+    // Random walk with no bias (equal chance up/down)
+    const change = (Math.random() - 0.5) * price * 0.01;   // 1% volatility per candle
+    price = Math.max(0.01, price + change);
+    const open = price;
+    const close = price + (Math.random() - 0.5) * price * 0.005;
+    const high = Math.max(open, close) + Math.random() * price * 0.002;
+    const low = Math.min(open, close) - Math.random() * price * 0.002;
+    const volume = (500 + Math.random() * 2000) * (1 + Math.abs(change) / price * 10);
+    candles.push({
+      timestamp: new Date(now - i * ms).toISOString(),
+      open: +open.toFixed(2),
+      high: +high.toFixed(2),
+      low: +low.toFixed(2),
+      close: +close.toFixed(2),
+      volume: +volume.toFixed(2)
     });
-
-    if (res.data.retCode !== 0) {
-      console.error(`Bybit error for ${symbol}: ${res.data.retMsg}`);
-      return null;
-    }
-
-    const klines = res.data.result.list;  // newest first
-    if (!klines || klines.length < 20) return null;
-
-    // Reverse to oldest first, then build candle objects
-    const candles = klines.reverse().map(k => ({
-      timestamp: parseInt(k[0]),
-      open: parseFloat(k[1]),
-      high: parseFloat(k[2]),
-      low: parseFloat(k[3]),
-      close: parseFloat(k[4]),
-      volume: parseFloat(k[5])
-    }));
-
-    const closes = candles.map(c => c.close);
-    const volumes = candles.map(c => c.volume);
-
-    // RSI (14)
-    const rsi = calcRSI(closes, 14);
-
-    // MACD
-    const macdObj = calcMACD(closes);
-    const macdLine = macdObj.macd;
-    const signalLine = macdObj.signal;
-    const histogram = macdObj.histogram;
-
-    // Volume spike check
-    const volSma = volumes.length > 10 ? volumes.slice(-10).reduce((a, b) => a + b, 0) / 10 : volumes[volumes.length - 1];
-    const lastVolume = volumes[volumes.length - 1];
-    const volumeSpike = lastVolume > volSma * 1.5;
-
-    // MA20
-    const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a, b) => a + b, 0) / 20 : closes[closes.length - 1];
-    const currentPrice = closes[closes.length - 1];
-
-    return {
-      price: currentPrice,
-      rsi,
-      macd: macdLine,
-      macdSignal: signalLine,
-      macdHistogram: histogram,
-      volumeSpike,
-      ma20,
-      priceVsMa: currentPrice > ma20 ? 'above' : 'below',
-      rawCandles: candles   // array of objects { timestamp, open, high, low, close, volume }
-    };
-  } catch (err) {
-    console.error(`Bybit error for ${symbol}:`, err.message);
-    return null;
   }
+  currentPrices[symbol] = candles[candles.length - 1].close;
+  return candles;
 }
 
-// RSI calculation
+// RSI (14)
 function calcRSI(closes, period = 14) {
   if (closes.length < period + 1) return 50;
   let gains = 0, losses = 0;
@@ -115,7 +63,7 @@ function calcRSI(closes, period = 14) {
   return 100 - (100 / (1 + rs));
 }
 
-// MACD calculation
+// MACD
 function calcMACD(closes) {
   const ema = (data, period) => {
     const k = 2 / (period + 1);
@@ -135,7 +83,35 @@ function calcMACD(closes) {
   };
 }
 
-// Compatibility stubs
+async function getIndicators(symbol, interval = '1h', limit = 50) {
+  if (!BASE_PRICES[symbol]) return null;
+  const candles = generateCandles(symbol, interval, limit);
+  if (!candles || candles.length < 20) return null;
+
+  const closes = candles.map(c => c.close);
+  const volumes = candles.map(c => c.volume);
+  const rsi = calcRSI(closes, 14);
+  const macdObj = calcMACD(closes);
+  const lastVolume = volumes[volumes.length - 1];
+  const volSma = volumes.length > 10 ? volumes.slice(-10).reduce((a, b) => a + b, 0) / 10 : lastVolume;
+  const volumeSpike = lastVolume > volSma * 1.5;
+  const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a, b) => a + b, 0) / 20 : closes[closes.length - 1];
+  const currentPrice = closes[closes.length - 1];
+
+  return {
+    price: currentPrice,
+    rsi,
+    macd: macdObj.macd,
+    macdSignal: macdObj.signal,
+    macdHistogram: macdObj.histogram,
+    volumeSpike,
+    ma20,
+    priceVsMa: currentPrice > ma20 ? 'above' : 'below',
+    rawCandles: candles   // objects with { timestamp, open, high, low, close, volume }
+  };
+}
+
+// Compatibility
 let binance = { options: () => binance };
 const updateKeys = () => {};
 async function placeOrder(signal) {
