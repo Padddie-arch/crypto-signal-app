@@ -104,7 +104,7 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
   const agreementRatio = totalVotes > 0 ? maxVotes / totalVotes : 0;
 
   // Require at least 4 out of 5 active strategies agree (80%), AND ADX >20 (already ensured)
-  if (agreementRatio < 0.8 || totalVotes < 4) return null;
+  if (agreementRatio < 0.5 || totalVotes < 2) return null;
 
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
   const confidence = Math.min(95, (maxVotes / 5) * 100); // confidence based on total strategies
