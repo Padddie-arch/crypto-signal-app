@@ -1,50 +1,36 @@
-// Realistic market simulator – generates proper candles with volume
-// No external API needed. Works forever.
+const axios = require('axios');
 
-const BASE_PRICES = {
-  BTCUSDT: 67000,
-  ETHUSDT: 3400,
-  SOLUSDT: 180,
-  BNBUSDT: 600,
-  XRPUSDT: 0.62
+// MEXC public kline endpoint – no auth, no geo‑block
+const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';
+
+const PAIRS = [
+  'BTCUSDT',
+  'ETHUSDT',
+  'SOLUSDT',
+  'BNBUSDT',
+  'XRPUSDT'
+];
+
+// Interval mapping (our interval -> MEXC interval string)
+const INTERVAL_MAP = {
+  '1h': '1h',
+  '4h': '4h',
+  '1d': '1d'
 };
 
-const currentPrices = { ...BASE_PRICES };
+// Rate limiter: MEXC allows 20 requests per 2 seconds – we use 500ms to be safe
+let lastRequestTime = 0;
+const MIN_GAP = 500;
 
-function generateCandles(symbol, interval, limit) {
-  if (!currentPrices[symbol]) currentPrices[symbol] = BASE_PRICES[symbol] || 100;
-  let price = currentPrices[symbol];
-  const candles = [];
+async function rateLimitedGet(url, params) {
   const now = Date.now();
-  const ms = {
-    '1h': 3600000,
-    '4h': 14400000,
-    '1d': 86400000
-  }[interval] || 3600000;
-
-  for (let i = limit - 1; i >= 0; i--) {
-    // Random walk with no bias (equal chance up/down)
-    const change = (Math.random() - 0.5) * price * 0.01;   // 1% volatility per candle
-    price = Math.max(0.01, price + change);
-    const open = price;
-    const close = price + (Math.random() - 0.5) * price * 0.005;
-    const high = Math.max(open, close) + Math.random() * price * 0.002;
-    const low = Math.min(open, close) - Math.random() * price * 0.002;
-    const volume = (500 + Math.random() * 2000) * (1 + Math.abs(change) / price * 10);
-    candles.push({
-      timestamp: new Date(now - i * ms).toISOString(),
-      open: +open.toFixed(2),
-      high: +high.toFixed(2),
-      low: +low.toFixed(2),
-      close: +close.toFixed(2),
-      volume: +volume.toFixed(2)
-    });
-  }
-  currentPrices[symbol] = candles[candles.length - 1].close;
-  return candles;
+  const wait = lastRequestTime + MIN_GAP - now;
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastRequestTime = Date.now();
+  return axios.get(url, { params, timeout: 10000 });
 }
 
-// RSI (14)
+// RSI
 function calcRSI(closes, period = 14) {
   if (closes.length < period + 1) return 50;
   let gains = 0, losses = 0;
@@ -84,34 +70,60 @@ function calcMACD(closes) {
 }
 
 async function getIndicators(symbol, interval = '1h', limit = 50) {
-  if (!BASE_PRICES[symbol]) return null;
-  const candles = generateCandles(symbol, interval, limit);
-  if (!candles || candles.length < 20) return null;
+  if (!PAIRS.includes(symbol)) return null;
+  const mexcInterval = INTERVAL_MAP[interval] || '1h';
 
-  const closes = candles.map(c => c.close);
-  const volumes = candles.map(c => c.volume);
-  const rsi = calcRSI(closes, 14);
-  const macdObj = calcMACD(closes);
-  const lastVolume = volumes[volumes.length - 1];
-  const volSma = volumes.length > 10 ? volumes.slice(-10).reduce((a, b) => a + b, 0) / 10 : lastVolume;
-  const volumeSpike = lastVolume > volSma * 1.5;
-  const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a, b) => a + b, 0) / 20 : closes[closes.length - 1];
-  const currentPrice = closes[closes.length - 1];
+  try {
+    const res = await rateLimitedGet(MEXC_KLINE_URL, {
+      symbol: symbol,
+      interval: mexcInterval,
+      limit: limit
+    });
 
-  return {
-    price: currentPrice,
-    rsi,
-    macd: macdObj.macd,
-    macdSignal: macdObj.signal,
-    macdHistogram: macdObj.histogram,
-    volumeSpike,
-    ma20,
-    priceVsMa: currentPrice > ma20 ? 'above' : 'below',
-    rawCandles: candles   // objects with { timestamp, open, high, low, close, volume }
-  };
+    const klines = res.data;  // array of arrays: [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, ...]
+    if (!klines || klines.length < 20) {
+      console.error(`Not enough candles for ${symbol}`);
+      return null;
+    }
+
+    // Build candle objects (oldest first)
+    const candles = klines.map(k => ({
+      timestamp: k[0],
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+      volume: parseFloat(k[5])
+    }));
+
+    const closes = candles.map(c => c.close);
+    const volumes = candles.map(c => c.volume);
+    const rsi = calcRSI(closes, 14);
+    const macdObj = calcMACD(closes);
+    const lastVolume = volumes[volumes.length - 1];
+    const volSma = volumes.length > 10 ? volumes.slice(-10).reduce((a, b) => a + b, 0) / 10 : lastVolume;
+    const volumeSpike = lastVolume > volSma * 1.5;
+    const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a, b) => a + b, 0) / 20 : closes[closes.length - 1];
+    const currentPrice = closes[closes.length - 1];
+
+    return {
+      price: currentPrice,
+      rsi,
+      macd: macdObj.macd,
+      macdSignal: macdObj.signal,
+      macdHistogram: macdObj.histogram,
+      volumeSpike,
+      ma20,
+      priceVsMa: currentPrice > ma20 ? 'above' : 'below',
+      rawCandles: candles   // objects with { timestamp, open, high, low, close, volume }
+    };
+  } catch (err) {
+    console.error(`MEXC error for ${symbol}:`, err.message);
+    return null;
+  }
 }
 
-// Compatibility
+// Compatibility stubs
 let binance = { options: () => binance };
 const updateKeys = () => {};
 async function placeOrder(signal) {
