@@ -15,8 +15,7 @@ async function generateAll() {
     { symbol: 'XRPUSDT', name: 'XRP/USD' }
   ];
 
-  // Only 1‑hour and 4‑hour timeframes for reliability
-  const timeframes = ['1h', '4h'];
+  const timeframes = ['1h', '4h'];   // Only the reliable timeframes
   const freshSignals = [];
 
   for (const pair of pairs) {
@@ -26,7 +25,6 @@ async function generateAll() {
       const candles = indicators.rawCandles;
       if (!candles || candles.length < 20) continue;
 
-      // Generate consensus‑based signal
       const consensus = generateConsensusSignal(
         candles,
         indicators.price,
@@ -36,7 +34,8 @@ async function generateAll() {
         indicators.priceVsMa
       );
 
-      if (consensus && consensus.confidence >= 80) {
+      // The consensus already filters for quality – we just use its confidence (which is ≥66 here)
+      if (consensus) {
         const direction = consensus.direction;
         const stopLoss = indicators.price * (direction === 'BUY' ? 0.98 : 1.02);
         const takeProfit = indicators.price * (direction === 'BUY' ? 1.04 : 0.96);
@@ -54,7 +53,7 @@ async function generateAll() {
           rsi: indicators.rsi,
           macd: indicators.macdHistogram,
           volumeSpike: indicators.volumeSpike,
-          aiTrend: direction === 'BUY' ? 'up' : 'down',  // simplified
+          aiTrend: direction === 'BUY' ? 'up' : 'down',
           adx: consensus.adx,
           trendStrength: consensus.trendStrength,
           timestamp: new Date().toISOString()
@@ -65,10 +64,9 @@ async function generateAll() {
     }
   }
 
-  // Solana meme coins (unchanged, but can be kept)
+  // Solana meme coins (kept as before)
   let memeCoins = [];
   try {
-    // Already rate-limited in solanaService, but add extra delay to be safe
     await new Promise(resolve => setTimeout(resolve, 3000));
     memeCoins = await solanaService.findNewSolanaMemeCoins();
   } catch (err) {
