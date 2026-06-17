@@ -11,14 +11,13 @@ const PAIRS = [
   'XRPUSDT'
 ];
 
-// Interval mapping (our interval -> MEXC interval string)
 const INTERVAL_MAP = {
   '1h': '1h',
   '4h': '4h',
   '1d': '1d'
 };
 
-// Rate limiter: MEXC allows 20 requests per 2 seconds – we use 500ms to be safe
+// Rate limiter: MEXC allows 20 req/2s, 500ms gap is safe
 let lastRequestTime = 0;
 const MIN_GAP = 500;
 
@@ -80,13 +79,15 @@ async function getIndicators(symbol, interval = '1h', limit = 50) {
       limit: limit
     });
 
-    const klines = res.data;  // array of arrays: [openTime, open, high, low, close, volume, closeTime, quoteVolume, trades, ...]
+    const klines = res.data;
     if (!klines || klines.length < 20) {
       console.error(`Not enough candles for ${symbol}`);
       return null;
     }
 
-    // Build candle objects (oldest first)
+    // ✅ This line proves you're on REAL data
+    console.log(`✅ REAL MEXC DATA – ${symbol} ${interval} – ${klines.length} candles, latest close = ${parseFloat(klines[klines.length - 1][4])}`);
+
     const candles = klines.map(k => ({
       timestamp: k[0],
       open: parseFloat(k[1]),
@@ -115,7 +116,7 @@ async function getIndicators(symbol, interval = '1h', limit = 50) {
       volumeSpike,
       ma20,
       priceVsMa: currentPrice > ma20 ? 'above' : 'below',
-      rawCandles: candles   // objects with { timestamp, open, high, low, close, volume }
+      rawCandles: candles
     };
   } catch (err) {
     console.error(`MEXC error for ${symbol}:`, err.message);
