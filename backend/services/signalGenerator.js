@@ -15,7 +15,7 @@ async function generateAll() {
     { symbol: 'XRPUSDT', name: 'XRP/USD' }
   ];
 
-  const timeframes = ['1h', '4h'];   // Only the reliable timeframes
+  const timeframes = ['1h', '4h'];   // Only reliable timeframes
   const freshSignals = [];
 
   for (const pair of pairs) {
@@ -23,7 +23,7 @@ async function generateAll() {
       const indicators = await binanceService.getIndicators(pair.symbol, tf);
       if (!indicators) continue;
       const candles = indicators.rawCandles;
-      if (!candles || candles.length < 20) continue;
+      if (!candles || candles.length < 100) continue;   // need enough data for 200 EMA
 
       const consensus = generateConsensusSignal(
         candles,
@@ -34,29 +34,25 @@ async function generateAll() {
         indicators.priceVsMa
       );
 
-      // The consensus already filters for quality – we just use its confidence (which is ≥66 here)
       if (consensus) {
-        const direction = consensus.direction;
-        const stopLoss = indicators.price * (direction === 'BUY' ? 0.98 : 1.02);
-        const takeProfit = indicators.price * (direction === 'BUY' ? 1.04 : 0.96);
         const signal = {
           id: Date.now() + Math.random(),
           pair: pair.name,
           symbol: pair.symbol,
           timeframe: tf,
-          direction,
+          direction: consensus.direction,
           price: indicators.price,
           confidence: consensus.confidence,
-          stopLoss,
-          takeProfit,
-          trailingStop: direction === 'BUY' ? indicators.price * 0.99 : indicators.price * 1.01,
+          stopLoss: consensus.stopLoss,
+          takeProfit: consensus.takeProfit,
+          trailingStop: null,   // not used with ATR‑based fixed SL/TP
           rsi: indicators.rsi,
           macd: indicators.macdHistogram,
           volumeSpike: indicators.volumeSpike,
-          aiTrend: direction === 'BUY' ? 'up' : 'down',
+          aiTrend: consensus.trend,
           adx: consensus.adx,
-          trendStrength: consensus.trendStrength,
-          timestamp: new Date().toISOString()
+          trendStrength: consensus.trend,
+          timestamp: consensus.timestamp
         };
         freshSignals.push(signal);
         tradeHistory.add(signal);
@@ -64,7 +60,7 @@ async function generateAll() {
     }
   }
 
-  // Solana meme coins (kept as before)
+  // Solana meme coins (keep as is)
   let memeCoins = [];
   try {
     await new Promise(resolve => setTimeout(resolve, 3000));
@@ -72,7 +68,6 @@ async function generateAll() {
   } catch (err) {
     console.log('Solana meme coins skipped:', err.message);
   }
-
   if (memeCoins.length > 0) {
     memeCoins.forEach(coin => {
       const signal = {
