@@ -1,6 +1,3 @@
-// Professional consensus engine – requires 4 of 5 active strategies to agree
-// Also enforces trend (200 EMA), ATR volatility, and last‑candle confirmation.
-
 function ema(data, period) {
   if (data.length < period) return [data[data.length - 1]];
   const k = 2 / (period + 1);
@@ -111,10 +108,11 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
   const sellVotes = votes.filter(v => v === -1).length;
   const totalNonZero = votes.filter(v => v !== 0).length;
 
-  // --- Relaxed requirement: at least 4 active strategies, and 80% of them must agree ---
-  if (totalNonZero < 4) return null;
+  // --- Minimum 3 active strategies & at least 75% agreement ---
+  // (Change totalNonZero < 3 to 4 if you want stricter, or 2 for more signals)
+  if (totalNonZero < 3) return null;
   const maxVotes = Math.max(buyVotes, sellVotes);
-  if (maxVotes / totalNonZero < 0.8) return null;
+  if (maxVotes / totalNonZero < 0.75) return null;
 
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
@@ -132,6 +130,8 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
   return {
     direction,
     confidence,
+    aligned: maxVotes,       // <-- NEW: number of strategies that agree
+    totalActive: totalNonZero,// <-- NEW: how many were active
     stopLoss,
     takeProfit,
     atr: currentATR,
