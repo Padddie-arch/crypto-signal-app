@@ -126,6 +126,7 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
     confidence,
     aligned: maxVotes,
     totalActive: totalNonZero,
+    totalStrategies: TOTAL_STRATEGIES,   // <-- new field
     stopLoss,
     takeProfit,
     atr: currentATR,
