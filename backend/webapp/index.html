@@ -1,3 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crypto Signals</title>
+  <!-- Manifest for PWA -->
+  <link rel="manifest" href="manifest.json">
+  <!-- Stylesheet (force reload with ?v=2) -->
+  <link rel="stylesheet" href="style.css?v=2">
+  <!-- OneSignal -->
+  <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+  <script>
+    window.OneSignal = window.OneSignal || [];
+    OneSignal.push(function() {
+      OneSignal.init({
+        appId: "680aae08-797f-4cfb-9750-64887cc02bbc",
+        notifyButton: { enable: false },
+        allowLocalhostAsSecureOrigin: true
+      });
+      OneSignal.showSlidedownPrompt();
+    });
+  </script>
+  <!-- Chart.js and Socket.io -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
 <body>
   <div id="app">
     <header>
@@ -46,3 +73,4 @@
 
   <script src="app.js"></script>
 </body>
+</html>
