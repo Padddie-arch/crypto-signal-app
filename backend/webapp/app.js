@@ -44,7 +44,7 @@ function renderSignals() {
           <span class="timeframe">${s.timeframe}</span>
         </div>
         <div>Price: $${s.price?.toFixed(2)}</div>
-        <div class="confidence">Confidence: ${s.confidence}% (${s.aligned || 0}/${s.totalActive || 0} strategies)</div>
+        <div class="confidence">Confidence: ${s.confidence}% (${s.aligned || 0}/${s.totalStrategies || 5} strategies)</div>
         ${s.rsi ? `<div class="info">RSI: ${s.rsi.toFixed(1)} | MACD: ${s.macd.toFixed(4)}</div>` : ''}
         <div class="info">SL: $${s.stopLoss?.toFixed(2)} | TP: $${s.takeProfit?.toFixed(2)}</div>
         <div class="info">Trailing Stop: ${s.trailingStop ? '$' + s.trailingStop.toFixed(2) : 'N/A'}</div>
