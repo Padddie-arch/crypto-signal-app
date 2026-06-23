@@ -116,7 +116,8 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
   // No trend or last‑candle filters – everything passes.
 
   const currentATR = atr(candles, 14) || 0.01;
-  const confidence = Math.round((maxVotes / totalNonZero) * 100);
+  const TOTAL_STRATEGIES = 5;
+  const confidence = Math.round((maxVotes / TOTAL_STRATEGIES) * 100);   // now based on all 5
   const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
   const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3 : currentPrice - currentATR * 3;
 
