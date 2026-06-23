@@ -45,6 +45,7 @@ async function generateAll() {
           confidence: consensus.confidence,
           aligned: consensus.aligned,           // strategies agreeing
           totalActive: consensus.totalActive,   // total active strategies
+          totalStrategies: consensus.totalStrategies,   // <-- new
           stopLoss: consensus.stopLoss,
           takeProfit: consensus.takeProfit,
           trailingStop: null,
