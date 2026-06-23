@@ -67,6 +67,7 @@ async function generateAll() {
           aiTrend: consensus.trend,
           adx: consensus.adx,
           trendStrength: consensus.trend,
+          pattern: consensus.pattern || ''      // <-- new
           timestamp: consensus.timestamp
         };
         freshSignals.push(signal);
