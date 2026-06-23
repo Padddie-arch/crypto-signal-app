@@ -12,7 +12,6 @@ socket.on('new_signals', (data) => {
   memeCoins = meme;
   renderSignals();
   renderMemeCoins();
-  // If on history tab, refresh history as new signals are added
   if (document.getElementById('history-section').style.display !== 'none') {
     loadHistory();
   }
@@ -62,7 +61,6 @@ async function loadHistory() {
       list.innerHTML = '<div class="info" style="padding:20px;">No past signals yet.</div>';
       return;
     }
-    // Show newest first
     const reversed = history.slice().reverse();
     list.innerHTML = reversed.map(s => {
       if (s.type === 'meme_coin') {
@@ -79,7 +77,7 @@ async function loadHistory() {
             <span style="color:${color}; font-weight:bold;">${s.pair} ${s.direction}</span>
             <span class="timeframe">${s.timeframe}</span>
           </div>
-          <div>Price: $${s.price?.toFixed(2)} | Confidence: ${s.confidence}%</div>
+          <div>Price: $${s.price?.toFixed(2)} | Confidence: ${s.confidence}% (${s.aligned || 0}/${s.totalStrategies || 5} strategies)</div>
           <div class="info">SL: $${s.stopLoss?.toFixed(2)} | TP: $${s.takeProfit?.toFixed(2)}</div>
           <div class="date">${new Date(s.timestamp).toLocaleString()}</div>
         </div>`;
