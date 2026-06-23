@@ -1,5 +1,5 @@
-// Professional‑grade consensus engine – strict, high‑accuracy version
-// Requires ALL 5 strategies to agree, plus trend & volatility filters.
+// Professional consensus engine – requires 4 of 5 active strategies to agree
+// Also enforces trend (200 EMA), ATR volatility, and last‑candle confirmation.
 
 function ema(data, period) {
   if (data.length < period) return [data[data.length - 1]];
@@ -67,18 +67,15 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
   const closes = candles.map(c => c.close);
   const lastCandle = candles[candles.length - 1];
 
-  // --- FILTER 1: Volatility (ATR must be > 1% of price) ---
+  // Volatility filter (ATR > 1% of price)
   const currentATR = atr(candles, 14);
-  if (currentATR / currentPrice < 0.01) return null;   // dead market
+  if (currentATR / currentPrice < 0.01) return null;
 
-  // --- FILTER 2: Trend (200 EMA) ---
+  // Trend filter (200 EMA)
   const ema200 = ema(closes, 200);
   const ema200Now = ema200[ema200.length - 1];
   const trend = currentPrice > ema200Now ? 'up' : 'down';
-  // We only allow trades in the trend direction
-  // Direction will be determined later by consensus, but we also require that the consensus direction matches the trend.
 
-  // --- 5 STRATEGIES ---
   // 1. RSI
   let rsiVote = 0;
   if (rsi < 30) rsiVote = 1;
@@ -109,33 +106,32 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
     volumeVote = lastCandle.close > prevClose ? 1 : -1;
   }
 
-  // Collect votes
   const votes = [rsiVote, macdVote, emaVote, adxVote, volumeVote];
   const buyVotes = votes.filter(v => v === 1).length;
   const sellVotes = votes.filter(v => v === -1).length;
   const totalNonZero = votes.filter(v => v !== 0).length;
 
-  // --- REQUIRE ALL 5 STRATEGIES ACTIVE & ALL AGREE ---
-  if (totalNonZero < 5) return null;          // All must be active
-  if (buyVotes !== 5 && sellVotes !== 5) return null;   // Not unanimous
+  // --- Relaxed requirement: at least 4 active strategies, and 80% of them must agree ---
+  if (totalNonZero < 4) return null;
+  const maxVotes = Math.max(buyVotes, sellVotes);
+  if (maxVotes / totalNonZero < 0.8) return null;
 
-  const direction = buyVotes === 5 ? 'BUY' : 'SELL';
+  const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // --- FILTER 3: Trade must be in the direction of the 200 EMA trend ---
+  // Trend alignment (trade with the 200 EMA)
   if ((direction === 'BUY' && trend !== 'up') || (direction === 'SELL' && trend !== 'down')) return null;
 
-  // --- FILTER 4: Last candle must agree (momentum) ---
+  // Last candle confirmation
   if (direction === 'BUY' && lastCandle.close <= lastCandle.open) return null;
   if (direction === 'SELL' && lastCandle.close >= lastCandle.open) return null;
 
-  // ATR‑based stop loss and take profit
+  const confidence = Math.round((maxVotes / totalNonZero) * 100);
   const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
   const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3 : currentPrice - currentATR * 3;
 
-  // Confidence is always 100 when we reach this point
   return {
     direction,
-    confidence: 100,          // only the strongest
+    confidence,
     stopLoss,
     takeProfit,
     atr: currentATR,
