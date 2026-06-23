@@ -1,3 +1,6 @@
+// Ultra‑loose consensus engine – lets nearly everything through.
+// Shows how many strategies are aligned (e.g. 1/5, 2/5).
+
 function ema(data, period) {
   if (data.length < period) return [data[data.length - 1]];
   const k = 2 / (period + 1);
@@ -64,14 +67,9 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
   const closes = candles.map(c => c.close);
   const lastCandle = candles[candles.length - 1];
 
-  // Volatility filter (ATR > 1% of price)
-  const currentATR = atr(candles, 14);
-  if (currentATR / currentPrice < 0.01) return null;
+  // Volatility filter removed – we want more signals even in dead markets.
 
-  // Trend filter (200 EMA)
-  const ema200 = ema(closes, 200);
-  const ema200Now = ema200[ema200.length - 1];
-  const trend = currentPrice > ema200Now ? 'up' : 'down';
+  // Trend filter removed – signals in both directions regardless of 200 EMA.
 
   // 1. RSI
   let rsiVote = 0;
@@ -108,21 +106,16 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
   const sellVotes = votes.filter(v => v === -1).length;
   const totalNonZero = votes.filter(v => v !== 0).length;
 
-  // --- Minimum 3 active strategies & at least 75% agreement ---
-  // (Change totalNonZero < 3 to 4 if you want stricter, or 2 for more signals)
-  if (totalNonZero < 3) return null;
+  // Allow signals with at least 1 active strategy and any agreement (20%+)
+  if (totalNonZero < 1) return null;
   const maxVotes = Math.max(buyVotes, sellVotes);
-  if (maxVotes / totalNonZero < 0.75) return null;
+  if (maxVotes / totalNonZero < 0.2) return null;   // 20% = 1/5
 
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // Trend alignment (trade with the 200 EMA)
-  if ((direction === 'BUY' && trend !== 'up') || (direction === 'SELL' && trend !== 'down')) return null;
+  // No trend or last‑candle filters – everything passes.
 
-  // Last candle confirmation
-  if (direction === 'BUY' && lastCandle.close <= lastCandle.open) return null;
-  if (direction === 'SELL' && lastCandle.close >= lastCandle.open) return null;
-
+  const currentATR = atr(candles, 14) || 0.01;
   const confidence = Math.round((maxVotes / totalNonZero) * 100);
   const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
   const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3 : currentPrice - currentATR * 3;
@@ -130,13 +123,13 @@ function generateConsensusSignal(candles, currentPrice, rsi, macdHistogram, volu
   return {
     direction,
     confidence,
-    aligned: maxVotes,       // <-- NEW: number of strategies that agree
-    totalActive: totalNonZero,// <-- NEW: how many were active
+    aligned: maxVotes,
+    totalActive: totalNonZero,
     stopLoss,
     takeProfit,
     atr: currentATR,
     adx: adxVal,
-    trend,
+    trend: 'any',
     timestamp: new Date().toISOString()
   };
 }
