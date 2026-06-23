@@ -20,10 +20,16 @@ h1 { margin: 0; font-size: 20px; }
 input:checked + .slider { background-color: #00c853; }
 input:checked + .slider:before { transform: translateX(26px); }
 
+/* Tabs */
+.tabs { display: flex; background: #1a1a2e; }
+.tab { flex: 1; background: transparent; color: #aaa; border: none; padding: 12px; font-size: 16px; cursor: pointer; transition: 0.3s; }
+.tab.active { color: #fff; background: #0f0f1a; border-bottom: 3px solid #ffaa00; }
+
 section { padding: 10px 15px; }
 h2 { color: #ffaa00; font-size: 18px; }
 
-.signal-card {
+/* Signal & History cards */
+.signal-card, .history-card {
   background: #1a1a2e;
   padding: 12px;
   margin: 8px 0;
@@ -31,11 +37,14 @@ h2 { color: #ffaa00; font-size: 18px; }
   border-radius: 8px;
   cursor: pointer;
 }
+.history-card { border-left-color: #4fc3f7; cursor: default; }
 .pair-row { display: flex; justify-content: space-between; }
 .timeframe { color: #aaa; font-size: 14px; }
 .confidence { color: #ffaa00; font-weight: bold; }
 .info { color: #ccc; font-size: 13px; margin-top: 2px; }
+.date { color: #90caf9; font-size: 12px; }
 
+/* Meme items */
 .meme-item {
   background: #16213e;
   padding: 8px;
@@ -45,6 +54,7 @@ h2 { color: #ffaa00; font-size: 18px; }
   font-size: 14px;
 }
 
+/* Modal */
 .modal {
   display: none;
   position: fixed;
