@@ -1,14 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Crypto Signals</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-</head>
 <body>
   <div id="app">
     <header>
@@ -22,16 +11,31 @@
       </div>
     </header>
 
-    <section id="signals">
+    <!-- Tab Navigation -->
+    <div class="tabs">
+      <button id="tab-signals" class="tab active" onclick="switchTab('signals')">📊 Signals</button>
+      <button id="tab-history" class="tab" onclick="switchTab('history')">📋 History</button>
+    </div>
+
+    <!-- Signals Section -->
+    <section id="signals-section">
       <h2>High Confidence Signals</h2>
       <div id="signalList"></div>
     </section>
 
+    <!-- History Section (hidden by default) -->
+    <section id="history-section" style="display: none;">
+      <h2>📅 Past Signals</h2>
+      <div id="historyList"></div>
+    </section>
+
+    <!-- Meme Coins Section (always visible) -->
     <section id="meme-coins">
       <h2>🐶 New Solana Meme Coins</h2>
       <div id="memeList"></div>
     </section>
 
+    <!-- Chart Modal -->
     <div id="chartModal" class="modal">
       <div class="modal-content">
         <span class="close">&times;</span>
@@ -40,24 +44,5 @@
     </div>
   </div>
 
-    <!-- OneSignal -->
-  <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
-  <script>
-    window.OneSignal = window.OneSignal || [];
-    OneSignal.push(function() {
-      OneSignal.init({
-        appId: "6ffe3c3a-f926-44c0-b85f-73ac504c01c6",
-        notifyButton: {
-          enable: false   // we won't show the bell icon; notifications will use the browser prompt
-        },
-        allowLocalhostAsSecureOrigin: true   // for testing, remove in production
-      });
-      // Automatically prompt for notification permission
-      OneSignal.showSlidedownPrompt();
-    });
-  </script>
-  <!-- End OneSignal -->
-
   <script src="app.js"></script>
 </body>
-</html>
