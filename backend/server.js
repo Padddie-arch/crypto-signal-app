@@ -31,7 +31,6 @@ app.get('/api/signals', (req, res) => {
   res.json(signals);
 });
 
-// API: Get trade history
 app.get('/api/history', (req, res) => {
   const history = tradeHistory.getAll();
   res.json(history);
