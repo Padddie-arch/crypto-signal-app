@@ -23,7 +23,7 @@ async function generateAll() {
       const indicators = await binanceService.getIndicators(pair.symbol, tf);
       if (!indicators) continue;
       const candles = indicators.rawCandles;
-      if (!candles || candles.length < 100) continue;
+      if (!candles || candles.length < 20) continue;
 
       const consensus = generateConsensusSignal(
         candles,
