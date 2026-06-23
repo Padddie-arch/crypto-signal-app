@@ -37,17 +37,16 @@ function renderSignals() {
     const isBuy = s.direction === 'BUY';
     const color = isBuy ? '#00e676' : '#ff5252';
     return `
-      <div class="signal-card" onclick="openChart('${s.symbol}')">
-        <div class="pair-row">
-          <span style="color:${color}; font-weight:bold;">${s.pair} ${s.direction}</span>
-          <span class="timeframe">${s.timeframe}</span>
+             <div class="history-card">
+          <div class="pair-row">
+            <span style="color:${color}; font-weight:bold;">${s.pair} ${s.direction}</span>
+            <span class="timeframe">${s.timeframe}</span>
+          </div>
+          <div>Price: $${s.price?.toFixed(2)} | Confidence: ${s.confidence}% (${s.aligned || 0}/${s.totalStrategies || 10} strategies)</div>
+          ${s.pattern ? `<div class="info">Pattern: ${s.pattern}</div>` : ''}
+          <div class="info">SL: $${s.stopLoss?.toFixed(2)} | TP: $${s.takeProfit?.toFixed(2)}</div>
+          <div class="date">${new Date(s.timestamp).toLocaleString()}</div>
         </div>
-        <div>Price: $${s.price?.toFixed(2)}</div>
-        <div class="confidence">Confidence: ${s.confidence}% (${s.aligned || 0}/${s.totalStrategies || 5} strategies)</div>
-        ${s.rsi ? `<div class="info">RSI: ${s.rsi.toFixed(1)} | MACD: ${s.macd.toFixed(4)}</div>` : ''}
-        <div class="info">SL: $${s.stopLoss?.toFixed(2)} | TP: $${s.takeProfit?.toFixed(2)}</div>
-        <div class="info">Trailing Stop: ${s.trailingStop ? '$' + s.trailingStop.toFixed(2) : 'N/A'}</div>
-      </div>`;
   }).join('');
 }
 
