@@ -31,6 +31,12 @@ app.get('/api/signals', (req, res) => {
   res.json(signals);
 });
 
+// API: Get trade history
+app.get('/api/history', (req, res) => {
+  const history = tradeHistory.getAll();
+  res.json(history);
+});
+
 app.post('/api/autotrade', (req, res) => {
   const { enabled } = req.body;
   process.env.AUTO_TRADE_ENABLED = enabled ? 'true' : 'false';
