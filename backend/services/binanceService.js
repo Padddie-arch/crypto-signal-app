@@ -4,11 +4,11 @@ const axios = require('axios');
 const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';
 
 const PAIRS = [
-  'BTCUSDT',
-  'ETHUSDT',
-  'SOLUSDT',
-  'BNBUSDT',
-  'XRPUSDT'
+  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
+  'TONUSDT', 'ADAUSDT', 'DOGEUSDT', 'XLMUSDT', 'LINKUSDT',
+  'LTCUSDT', 'SUIUSDT', 'POLUSDT', 'NEARUSDT', 'UNIUSDT',
+  'TAOUSDT', 'SHIBUSDT', 'APTUSDT', 'ZECUSDT', 'CAKEUSDT',
+  'AVAXUSDT', 'TRXUSDT'
 ];
 
 const INTERVAL_MAP = {
