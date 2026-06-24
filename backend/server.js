@@ -16,15 +16,18 @@ const io = socketIo(server, { cors: { origin: "*" } });
 // ========== CONFIGURATION ==========
 const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';
 const PAIRS = [
-  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
-  'TONUSDT', 'ADAUSDT', 'DOGEUSDT', 'XLMUSDT', 'LINKUSDT',
-  'LTCUSDT', 'SUIUSDT', 'POLUSDT', 'NEARUSDT', 'UNIUSDT',
-  'TAOUSDT', 'SHIBUSDT', 'APTUSDT', 'ZECUSDT', 'CAKEUSDT',
-  'AVAXUSDT', 'TRXUSDT'
+  'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT',
+  'TONUSDT','ADAUSDT','DOGEUSDT','XLMUSDT','LINKUSDT',
+  'LTCUSDT','SUIUSDT','POLUSDT','NEARUSDT','UNIUSDT',
+  'TAOUSDT','SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT',
+  'AVAXUSDT','TRXUSDT'
 ].map(symbol => ({ symbol, name: symbol.replace('USDT', '/USD') }));
 
 const TIMEFRAMES = ['1h', '4h'];
-const INTERVAL_MAP = { '1h': '1h', '4h': '4h' };
+const INTERVAL_MAP = {
+  '1h': '60m',   // ✅ Fixed: MEXC uses "60m" for 1 hour
+  '4h': '4h'
+};
 
 // ========== RATE LIMITER ==========
 let lastRequestTime = 0;
@@ -49,7 +52,7 @@ async function mexcGet(url, params) {
 const cache = {};
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// ========== FETCH CANDLES (MEXC only, handles 1h & 4h) ==========
+// ========== FETCH CANDLES (MEXC only) ==========
 async function fetchCandles(symbol, interval) {
   const cacheKey = `${symbol}_${interval}`;
   const now = Date.now();
@@ -60,7 +63,7 @@ async function fetchCandles(symbol, interval) {
   try {
     const res = await mexcGet(MEXC_KLINE_URL, {
       symbol,
-      interval: INTERVAL_MAP[interval],
+      interval: INTERVAL_MAP[interval],   // ✅ uses correct MEXC interval string
       limit: 100
     });
     const klines = res.data;
@@ -277,7 +280,7 @@ function generateSignal(pair, candles, interval) {
   if (macdRes.hist > 0) macdVote = 1; else if (macdRes.hist < 0) macdVote = -1;
   const ema9 = ema(closes, 9), ema21 = ema(closes, 21);
   emaVote = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 1 : -1;
-  if (adxRes.adx > 25) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;  // ADX threshold raised to 25
+  if (adxRes.adx > 25) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
   if (volumeSpike) { volVote = currentPrice > closes[closes.length - 2] ? 1 : -1; }
   if (stoch < 20) stochVote = 1; else if (stoch > 80) stochVote = -1;
   ichiVote = ichi.vote || 0;
@@ -341,7 +344,7 @@ async function generateAllSignals() {
     }
   }
 
-  // Multi‑timeframe confluence: must have both 1h and 4h signals, same direction
+  // Multi‑timeframe confluence
   for (const symbol of Object.keys(signalsByPair)) {
     const pairSignals = signalsByPair[symbol];
     if (pairSignals['1h'] && pairSignals['4h'] && pairSignals['1h'].direction === pairSignals['4h'].direction) {
@@ -387,7 +390,8 @@ app.get('/api/stats', (req, res) => {
 app.get('/api/prices', async (req, res) => {
   const prices = {};
   for (const pair of PAIRS) {
-    const candles = await fetchCandles(pair.symbol, '4h'); // use 4h for prices (reliable)
+    // Use 4h candles for reliable price display
+    const candles = await fetchCandles(pair.symbol, '4h');
     if (candles && candles.length) {
       const price = candles[candles.length - 1].close;
       if (price && !isNaN(price) && price > 0) prices[pair.symbol.replace('USDT', '')] = price;
