@@ -20,13 +20,17 @@ window.addEventListener('scroll', () => {
 async function updateTicker() {
   try {
     const res = await fetch(SERVER_URL + '/api/prices');
+    if (!res.ok) throw new Error('Bad response');
     const prices = await res.json();
     let html = '';
     for (const [sym, price] of Object.entries(prices)) {
       html += `${sym}: $${price.toFixed(2)}  |  `;
     }
-    document.getElementById('tickerContent').textContent = html.slice(0, -3);
-  } catch(e) {}
+    document.getElementById('tickerContent').textContent = html.slice(0, -3) || 'Waiting for prices...';
+  } catch(e) {
+    // Fallback to static text if server not ready
+    document.getElementById('tickerContent').textContent = 'Prices loading... will update soon';
+  }
 }
 setInterval(updateTicker, 60000);
 updateTicker();
