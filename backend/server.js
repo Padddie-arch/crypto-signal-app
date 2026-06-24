@@ -14,100 +14,66 @@ const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: "*" } });
 
 // ========== CONFIGURATION ==========
-const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY || '';   // leave empty to use simulator
-const TWELVE_DATA_URL = 'https://api.twelvedata.com/time_series';
-
+const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';
 const PAIRS = [
-  { symbol: 'BTC/USD', name: 'BTC/USD', basePrice: 67000, id: 'BTC' },
-  { symbol: 'ETH/USD', name: 'ETH/USD', basePrice: 3400, id: 'ETH' },
-  { symbol: 'SOL/USD', name: 'SOL/USD', basePrice: 180, id: 'SOL' },
-  { symbol: 'BNB/USD', name: 'BNB/USD', basePrice: 600, id: 'BNB' },
-  { symbol: 'XRP/USD', name: 'XRP/USD', basePrice: 0.62, id: 'XRP' },
-  { symbol: 'TON/USD', name: 'TON/USD', basePrice: 7.5, id: 'TON' },
-  { symbol: 'ADA/USD', name: 'ADA/USD', basePrice: 0.45, id: 'ADA' },
-  { symbol: 'DOGE/USD', name: 'DOGE/USD', basePrice: 0.15, id: 'DOGE' },
-  { symbol: 'XLM/USD', name: 'XLM/USD', basePrice: 0.11, id: 'XLM' },
-  { symbol: 'LINK/USD', name: 'LINK/USD', basePrice: 15, id: 'LINK' },
-  { symbol: 'LTC/USD', name: 'LTC/USD', basePrice: 85, id: 'LTC' },
-  { symbol: 'SUI/USD', name: 'SUI/USD', basePrice: 1.2, id: 'SUI' },
-  { symbol: 'POL/USD', name: 'POL/USD', basePrice: 0.55, id: 'POL' },
-  { symbol: 'NEAR/USD', name: 'NEAR/USD', basePrice: 5.5, id: 'NEAR' },
-  { symbol: 'UNI/USD', name: 'UNI/USD', basePrice: 7.2, id: 'UNI' },
-  { symbol: 'TAO/USD', name: 'TAO/USD', basePrice: 350, id: 'TAO' },
-  { symbol: 'SHIB/USD', name: 'SHIB/USD', basePrice: 0.000025, id: 'SHIB' },
-  { symbol: 'APT/USD', name: 'APT/USD', basePrice: 9.5, id: 'APT' },
-  { symbol: 'ZEC/USD', name: 'ZEC/USD', basePrice: 32, id: 'ZEC' },
-  { symbol: 'CAKE/USD', name: 'CAKE/USD', basePrice: 2.5, id: 'CAKE' },
-  { symbol: 'AVAX/USD', name: 'AVAX/USD', basePrice: 35, id: 'AVAX' },
-  { symbol: 'TRX/USD', name: 'TRX/USD', basePrice: 0.12, id: 'TRX' }
+  { symbol: 'BTCUSDT', name: 'BTC/USD', basePrice: 67000 },
+  { symbol: 'ETHUSDT', name: 'ETH/USD', basePrice: 3400 },
+  { symbol: 'SOLUSDT', name: 'SOL/USD', basePrice: 180 },
+  { symbol: 'BNBUSDT', name: 'BNB/USD', basePrice: 600 },
+  { symbol: 'XRPUSDT', name: 'XRP/USD', basePrice: 0.62 },
+  { symbol: 'TONUSDT', name: 'TON/USD', basePrice: 7.5 },
+  { symbol: 'ADAUSDT', name: 'ADA/USD', basePrice: 0.45 },
+  { symbol: 'DOGEUSDT', name: 'DOGE/USD', basePrice: 0.15 },
+  { symbol: 'XLMUSDT', name: 'XLM/USD', basePrice: 0.11 },
+  { symbol: 'LINKUSDT', name: 'LINK/USD', basePrice: 15 },
+  { symbol: 'LTCUSDT', name: 'LTC/USD', basePrice: 85 },
+  { symbol: 'SUIUSDT', name: 'SUI/USD', basePrice: 1.2 },
+  { symbol: 'POLUSDT', name: 'POL/USD', basePrice: 0.55 },
+  { symbol: 'NEARUSDT', name: 'NEAR/USD', basePrice: 5.5 },
+  { symbol: 'UNIUSDT', name: 'UNI/USD', basePrice: 7.2 },
+  { symbol: 'TAOUSDT', name: 'TAO/USD', basePrice: 350 },
+  { symbol: 'SHIBUSDT', name: 'SHIB/USD', basePrice: 0.000025 },
+  { symbol: 'APTUSDT', name: 'APT/USD', basePrice: 9.5 },
+  { symbol: 'ZECUSDT', name: 'ZEC/USD', basePrice: 32 },
+  { symbol: 'CAKEUSDT', name: 'CAKE/USD', basePrice: 2.5 },
+  { symbol: 'AVAXUSDT', name: 'AVAX/USD', basePrice: 35 },
+  { symbol: 'TRXUSDT', name: 'TRX/USD', basePrice: 0.12 }
 ];
 
 const TIMEFRAMES = ['1h', '4h'];
-const TWELVE_INTERVAL_MAP = { '1h': '1h', '4h': '4h' };
+const INTERVAL_MAP = { '1h': '1h', '4h': '4h' };
 
-// Cache (5 min for real data, 1 min for simulator)
+// ========== STATE ==========
+let useSimulator = false;   // automatically switched if MEXC fails
 const cache = {};
-let CACHE_TTL = TWELVE_DATA_KEY ? 5 * 60 * 1000 : 60 * 1000;
-
-// Simulator state (used only if no API key)
-const simPrices = {};
-PAIRS.forEach(p => simPrices[p.id] = p.basePrice);
-
-// Rate limiter for Twelve Data (8 requests/minute to stay under 800/day)
+const CACHE_TTL = 60 * 1000;
 let lastRequestTime = 0;
-const MIN_GAP = TWELVE_DATA_KEY ? 7500 : 200; // 7.5 seconds for real, 0.2s for simulator
+const MIN_GAP = 200;
 
+// Simulator prices (fallback)
+const simPrices = {};
+PAIRS.forEach(p => simPrices[p.symbol] = p.basePrice);
+
+// ========== HELPERS ==========
 async function rateLimitedGet(url, params) {
   const now = Date.now();
   const wait = lastRequestTime + MIN_GAP - now;
   if (wait > 0) await new Promise(r => setTimeout(r, wait));
   lastRequestTime = Date.now();
-  return axios.get(url, { params, timeout: 10000 });
+  return axios.get(url, {
+    params,
+    timeout: 10000,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+  });
 }
 
-// ========== DATA FETCHING ==========
-async function fetchCandles(twelveSymbol, interval) {
-  const cacheKey = `${twelveSymbol}_${interval}`;
-  const now = Date.now();
-  if (cache[cacheKey] && (now - cache[cacheKey].timestamp) < CACHE_TTL) {
-    return cache[cacheKey].data;
-  }
-
-  // --- REAL DATA (if API key is set) ---
-  if (TWELVE_DATA_KEY) {
-    try {
-      const res = await rateLimitedGet(TWELVE_DATA_URL, {
-        symbol: twelveSymbol,
-        interval: TWELVE_INTERVAL_MAP[interval] || '1h',
-        outputsize: 100,
-        apikey: TWELVE_DATA_KEY,
-        format: 'JSON'
-      });
-      const values = res.data?.values;
-      if (!values || values.length < 50) return null;
-      // Twelve Data returns newest first -> reverse to oldest first
-      const candles = values.reverse().map(c => ({
-        timestamp: c.datetime,
-        open: parseFloat(c.open),
-        high: parseFloat(c.high),
-        low: parseFloat(c.low),
-        close: parseFloat(c.close),
-        volume: parseFloat(c.volume)
-      }));
-      cache[cacheKey] = { data: candles, timestamp: now };
-      return candles;
-    } catch (err) {
-      console.error(`Twelve Data error for ${twelveSymbol}:`, err.message);
-      return null;
-    }
-  }
-
-  // --- SIMULATOR FALLBACK (if no API key) ---
-  const id = twelveSymbol.split('/')[0];
-  let price = simPrices[id] || 100;
+function simulateCandles(basePrice, interval, limit = 100) {
+  let price = simPrices[basePrice] || 100;
   const candles = [];
   const ms = interval === '1h' ? 3600000 : 14400000;
-  for (let i = 99; i >= 0; i--) {
+  for (let i = limit - 1; i >= 0; i--) {
     price += (Math.random() - 0.5) * price * 0.005;
     if (price <= 0) price = 0.000001;
     candles.push({
@@ -119,30 +85,58 @@ async function fetchCandles(twelveSymbol, interval) {
       volume: +(1000 + Math.random() * 5000).toFixed(2)
     });
   }
-  simPrices[id] = candles[candles.length - 1].close;
-  cache[cacheKey] = { data: candles, timestamp: now };
+  simPrices[basePrice] = candles[candles.length - 1].close;
   return candles;
 }
 
-// ========== SIGNAL GENERATION (simplified consensus) ==========
+// ========== FETCH CANDLES (MEXC first, simulator fallback) ==========
+async function fetchCandles(symbol, interval) {
+  if (useSimulator) {
+    return simulateCandles(symbol, interval);
+  }
+
+  const cacheKey = `${symbol}_${interval}`;
+  const now = Date.now();
+  if (cache[cacheKey] && (now - cache[cacheKey].timestamp) < CACHE_TTL) {
+    return cache[cacheKey].data;
+  }
+
+  try {
+    const res = await rateLimitedGet(MEXC_KLINE_URL, {
+      symbol,
+      interval: INTERVAL_MAP[interval],
+      limit: 100
+    });
+    const klines = res.data;
+    if (!klines || klines.length < 50) {
+      throw new Error('Empty or too few candles');
+    }
+    const candles = klines.map(k => ({
+      timestamp: k[0],
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+      volume: parseFloat(k[5])
+    }));
+    cache[cacheKey] = { data: candles, timestamp: now };
+    return candles;
+  } catch (err) {
+    console.error(`MEXC failed for ${symbol} – switching to simulator. Error: ${err.message}`);
+    useSimulator = true;   // flip the switch for all future requests
+    return simulateCandles(symbol, interval);
+  }
+}
+
+// ========== SIGNAL GENERATION ==========
 function generateConsensusSignal(candles, currentPrice) {
   if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) return null;
-  const closes = candles.map(c => c.close);
-  const volumes = candles.map(c => c.volume);
-  const currentATR = (() => {
-    const highs = candles.map(c => c.high), lows = candles.map(c => c.low), cl = closes;
-    const tr = [];
-    for (let i = 1; i < candles.length; i++) tr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - cl[i-1]), Math.abs(lows[i] - cl[i-1])));
-    if (tr.length < 14) return currentPrice * 0.01;
-    const atrArr = [tr[0]];
-    for (let i = 1; i < tr.length; i++) atrArr.push((atrArr[i-1] * 13 + tr[i]) / 14);
-    return atrArr[atrArr.length - 1];
-  })();
   const direction = Math.random() > 0.5 ? 'BUY' : 'SELL';
   const aligned = Math.floor(Math.random() * 11) + 1;
   const confidence = Math.round((aligned / 11) * 100);
-  const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
-  const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3 : currentPrice - currentATR * 3;
+  const atrVal = currentPrice * 0.01;
+  const stopLoss = direction === 'BUY' ? currentPrice - atrVal * 1.5 : currentPrice + atrVal * 1.5;
+  const takeProfit = direction === 'BUY' ? currentPrice + atrVal * 3 : currentPrice - atrVal * 3;
   return {
     direction, confidence,
     aligned, totalActive: 11, totalStrategies: 11,
@@ -165,7 +159,7 @@ async function generateAllSignals() {
         freshSignals.push({
           id: Date.now() + Math.random(),
           pair: pair.name,
-          symbol: pair.symbol.replace('/', ''),
+          symbol: pair.symbol,
           timeframe: tf,
           price: currentPrice,
           ...signal,
@@ -181,7 +175,7 @@ async function generateAllSignals() {
   return freshSignals;
 }
 
-// ========== STATE ==========
+// ========== MAIN LOOP ==========
 let latestSignals = [];
 let signalHistory = [];
 const MAX_HISTORY = 500;
@@ -195,8 +189,6 @@ async function tick() {
       signalHistory = [...signalHistory, ...newSignals].slice(-MAX_HISTORY);
       io.emit('new_signals', latestSignals);
       console.log(`${newSignals.length} signals generated`);
-    } else {
-      console.log('No signals generated');
     }
   } catch (err) {
     console.error('Signal generation error:', err);
@@ -220,7 +212,7 @@ app.get('/api/prices', async (req, res) => {
     const candles = await fetchCandles(pair.symbol, '1h', 1);
     if (candles && candles.length) {
       const price = candles[candles.length - 1].close;
-      if (price && !isNaN(price) && price > 0) prices[pair.id] = price;
+      if (price && !isNaN(price) && price > 0) prices[pair.symbol.replace('USDT','')] = price;
     }
   }
   res.json(prices);
