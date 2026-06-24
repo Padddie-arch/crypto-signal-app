@@ -29,19 +29,19 @@ const CRYPTO_PAIRS = [
 
 // Metals & Forex pairs (Twelve Data only – no simulator)
 const OTHER_PAIRS = [
-  // Metals
-  { symbol: 'XAU/USD', name: 'XAU/USD', type: 'metal' },
-  { symbol: 'XAG/USD', name: 'XAG/USD', type: 'metal' },
-  { symbol: 'XPT/USD', name: 'XPT/USD', type: 'metal' },  // Platinum
-  { symbol: 'XPD/USD', name: 'XPD/USD', type: 'metal' },  // Palladium
+  // Metals (Twelve Data symbols use no slash)
+  { symbol: 'XAU/USD', name: 'XAU/USD', tdSymbol: 'XAUUSD', type: 'metal' },
+  { symbol: 'XAG/USD', name: 'XAG/USD', tdSymbol: 'XAGUSD', type: 'metal' },
+  { symbol: 'XPT/USD', name: 'XPT/USD', tdSymbol: 'XPTUSD', type: 'metal' },
+  { symbol: 'XPD/USD', name: 'XPD/USD', tdSymbol: 'XPDUSD', type: 'metal' },
   // Major Forex
-  { symbol: 'EUR/USD', name: 'EUR/USD', type: 'forex' },
-  { symbol: 'GBP/USD', name: 'GBP/USD', type: 'forex' },
-  { symbol: 'USD/JPY', name: 'USD/JPY', type: 'forex' },
-  { symbol: 'USD/CHF', name: 'USD/CHF', type: 'forex' },
-  { symbol: 'AUD/USD', name: 'AUD/USD', type: 'forex' },
-  { symbol: 'USD/CAD', name: 'USD/CAD', type: 'forex' },
-  { symbol: 'NZD/USD', name: 'NZD/USD', type: 'forex' }
+  { symbol: 'EUR/USD', name: 'EUR/USD', tdSymbol: 'EUR/USD', type: 'forex' },
+  { symbol: 'GBP/USD', name: 'GBP/USD', tdSymbol: 'GBP/USD', type: 'forex' },
+  { symbol: 'USD/JPY', name: 'USD/JPY', tdSymbol: 'USD/JPY', type: 'forex' },
+  { symbol: 'USD/CHF', name: 'USD/CHF', tdSymbol: 'USD/CHF', type: 'forex' },
+  { symbol: 'AUD/USD', name: 'AUD/USD', tdSymbol: 'AUD/USD', type: 'forex' },
+  { symbol: 'USD/CAD', name: 'USD/CAD', tdSymbol: 'USD/CAD', type: 'forex' },
+  { symbol: 'NZD/USD', name: 'NZD/USD', tdSymbol: 'NZD/USD', type: 'forex' }
 ];
 
 const ALL_PAIRS = [...CRYPTO_PAIRS, ...OTHER_PAIRS];
@@ -49,9 +49,9 @@ const ALL_PAIRS = [...CRYPTO_PAIRS, ...OTHER_PAIRS];
 const TIMEFRAMES = ['1h', '4h'];
 const INTERVAL_MAP = { '1h': '60m', '4h': '4h' };
 
-// ========== RATE LIMITER ==========
+// ========== RATE LIMITERS ==========
 let lastRequestTime = 0;
-const MIN_GAP = 200;
+const MIN_GAP = 200; // MEXC (200ms)
 
 async function rateLimitedGet(url, params) {
   const now = Date.now();
@@ -68,11 +68,32 @@ async function rateLimitedGet(url, params) {
   });
 }
 
+// Twelve Data rate limiter (800 req/day, safe with 8 seconds gap)
+let lastTDRequestTime = 0;
+const TD_MIN_GAP = 8000; // 8 seconds
+
+async function tdGet(url, params) {
+  const now = Date.now();
+  const wait = lastTDRequestTime + TD_MIN_GAP - now;
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastTDRequestTime = Date.now();
+  return axios.get(url, {
+    params,
+    timeout: 10000,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      'Accept': 'application/json'
+    }
+  });
+}
+
 // ========== CACHES ==========
 const klineCache = {};
-const KLINE_CACHE_TTL = 5 * 60 * 1000;
+const KLINE_CACHE_TTL = 5 * 60 * 1000;          // 5 minutes for crypto
+const TD_KLINE_CACHE_TTL = 15 * 60 * 1000;      // 15 minutes for Twelve Data
 const priceCache = {};
-const PRICE_CACHE_TTL = 30 * 1000;
+const PRICE_CACHE_TTL = 30 * 1000;               // 30 seconds for crypto prices
+const TD_PRICE_CACHE_TTL = 2 * 60 * 1000;        // 2 minutes for Twelve Data prices
 
 // ========== LIVE PRICE ==========
 async function fetchLivePrice(pair) {
@@ -100,9 +121,14 @@ async function fetchLivePrice(pair) {
       console.log(`Skipping ${pair.symbol} – no Twelve Data API key`);
       return null;
     }
+    const cacheKey = `tdprice_${pair.tdSymbol}`;
+    const now = Date.now();
+    if (priceCache[cacheKey] && (now - priceCache[cacheKey].timestamp) < TD_PRICE_CACHE_TTL) {
+      return priceCache[cacheKey].price;
+    }
     try {
-      const res = await rateLimitedGet(TWELVE_DATA_URL, {
-        symbol: pair.symbol,
+      const res = await tdGet(TWELVE_DATA_URL, {
+        symbol: pair.tdSymbol,          // use tdSymbol
         interval: '1min',
         outputsize: 1,
         apikey: TWELVE_DATA_KEY,
@@ -161,9 +187,14 @@ async function fetchCandles(pair, interval, minCandles = 50) {
       console.log(`Skipping ${pair.symbol} candles – no Twelve Data API key`);
       return null;
     }
+    const cacheKey = `tdkline_${pair.tdSymbol}_${interval}`;
+    const now = Date.now();
+    if (klineCache[cacheKey] && (now - klineCache[cacheKey].timestamp) < TD_KLINE_CACHE_TTL) {
+      return klineCache[cacheKey].data;
+    }
     try {
-      const res = await rateLimitedGet(TWELVE_DATA_URL, {
-        symbol: pair.symbol,
+      const res = await tdGet(TWELVE_DATA_URL, {
+        symbol: pair.tdSymbol,          // use tdSymbol
         interval: interval === '1h' ? '1h' : '4h',
         outputsize: minCandles,
         apikey: TWELVE_DATA_KEY,
@@ -189,9 +220,6 @@ async function fetchCandles(pair, interval, minCandles = 50) {
 }
 
 // ========== TECHNICAL INDICATORS (all 11) ==========
-// (All the indicator functions remain exactly the same – ema, rsiArr, adx, etc.)
-// I'll include them for completeness but they are identical to your code.
-
 function ema(data, period) {
   if (data.length < period) return [data[data.length - 1]];
   const k = 2 / (period + 1);
@@ -506,7 +534,6 @@ app.get('/api/prices', async (req, res) => {
   for (const pair of ALL_PAIRS) {
     const livePrice = await fetchLivePrice(pair);
     if (livePrice !== null) {
-      // Remove slash from symbol for frontend (e.g. 'XAU/USD' -> 'XAUUSD')
       const key = pair.symbol.replace('/', '');
       prices[key] = livePrice;
     }
