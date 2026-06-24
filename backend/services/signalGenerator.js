@@ -7,13 +7,31 @@ const { generateConsensusSignal } = require('./indicatorService');
 let latestSignals = [];
 
 async function generateAll() {
-  const pairs = [
-    'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT',
-    'TONUSDT','ADAUSDT','DOGEUSDT','XLMUSDT','LINKUSDT',
-    'LTCUSDT','SUIUSDT','POLUSDT','NEARUSDT','UNIUSDT',
-    'TAOUSDT','SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT',
-    'AVAXUSDT','TRXUSDT'
-  ].map(s => ({ symbol: s, name: s.replace('USDT', '/USD') }));
+    const pairs = [
+    { symbol: 'BTCUSDT', name: 'BTC/USD' },
+    { symbol: 'ETHUSDT', name: 'ETH/USD' },
+    { symbol: 'SOLUSDT', name: 'SOL/USD' },
+    { symbol: 'BNBUSDT', name: 'BNB/USD' },
+    { symbol: 'XRPUSDT', name: 'XRP/USD' },
+    { symbol: 'TONUSDT', name: 'TON/USD' },
+    { symbol: 'ADAUSDT', name: 'ADA/USD' },
+    { symbol: 'DOGEUSDT', name: 'DOGE/USD' },
+    { symbol: 'XLMUSDT', name: 'XLM/USD' },
+    { symbol: 'LINKUSDT', name: 'LINK/USD' },
+    { symbol: 'LTCUSDT', name: 'LTC/USD' },
+    { symbol: 'SUIUSDT', name: 'SUI/USD' },
+    { symbol: 'POLUSDT', name: 'POL/USD' },
+    { symbol: 'NEARUSDT', name: 'NEAR/USD' },
+    { symbol: 'UNIUSDT', name: 'UNI/USD' },
+    { symbol: 'TAOUSDT', name: 'TAO/USD' },
+    { symbol: 'SHIBUSDT', name: 'SHIB/USD' },
+    { symbol: 'APTUSDT', name: 'APT/USD' },
+    { symbol: 'ZECUSDT', name: 'ZEC/USD' },
+    { symbol: 'CAKEUSDT', name: 'CAKE/USD' },
+    { symbol: 'AVAXUSDT', name: 'AVAX/USD' },
+    { symbol: 'TRXUSDT', name: 'TRX/USD' }
+  ];
+     map(s => ({ symbol: s, name: s.replace('USDT', '/USD') }));
 
   const timeframes = ['1h', '4h'];
   const freshSignals = [];
