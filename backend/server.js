@@ -50,6 +50,32 @@ app.post('/api/keys', (req, res) => {
   res.json({ success: true });
 });
 
+const tradeTracker = require('./services/tradeTracker');
+// ... (existing code)
+
+// Check open trades every 15 minutes
+cron.schedule('*/15 * * * *', async () => {
+  await tradeTracker.checkOpenTrades();
+});
+
+// Stats endpoint
+app.get('/api/stats', (req, res) => {
+  const stats = tradeTracker.getStats();
+  res.json(stats);
+});
+
+// Live prices (simple endpoint)
+app.get('/api/prices', async (req, res) => {
+  const prices = {};
+  // use cached data or fetch fresh
+  const pairs = ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','TONUSDT','ADAUSDT','DOGEUSDT','XLMUSDT','LINKUSDT','LTCUSDT','SUIUSDT','POLUSDT','NEARUSDT','UNIUSDT','TAOUSDT','SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT','AVAXUSDT','TRXUSDT'];
+  for (const sym of pairs) {
+    const ind = await binanceService.getIndicators(sym, '1h', 1);
+    if (ind) prices[sym.replace('USDT','')] = ind.price;
+  }
+  res.json(prices);
+});
+
 cron.schedule('* * * * *', async () => {
   console.log('Generating signals...');
   try {
