@@ -3,11 +3,11 @@ const axios = require('axios');
 async function sendPushForSignals(signals) {
   if (!process.env.ONESIGNAL_APP_ID || !process.env.ONESIGNAL_REST_API_KEY) return;
 
-  // Only notify if at least one signal has 7+ out of 10 strategies aligned
+  // Only notify if at least one signal has 7+ out of 11 strategies aligned
   const highAlignSignals = signals.filter(s => {
     const aligned = s.aligned || 0;
-    const total = s.totalStrategies || 10;
-    return aligned >= 7 && total === 10;
+    const total = s.totalStrategies || 11;
+    return aligned >= 7 && total === 11;
   });
 
   if (highAlignSignals.length === 0) return;
