@@ -16,44 +16,37 @@ const io = socketIo(server, { cors: { origin: "*" } });
 // ========== CONFIGURATION ==========
 const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';
 const PAIRS = [
-  { symbol: 'BTCUSDT', name: 'BTC/USD', basePrice: 67000 },
-  { symbol: 'ETHUSDT', name: 'ETH/USD', basePrice: 3400 },
-  { symbol: 'SOLUSDT', name: 'SOL/USD', basePrice: 180 },
-  { symbol: 'BNBUSDT', name: 'BNB/USD', basePrice: 600 },
-  { symbol: 'XRPUSDT', name: 'XRP/USD', basePrice: 0.62 },
-  { symbol: 'TONUSDT', name: 'TON/USD', basePrice: 7.5 },
-  { symbol: 'ADAUSDT', name: 'ADA/USD', basePrice: 0.45 },
-  { symbol: 'DOGEUSDT', name: 'DOGE/USD', basePrice: 0.15 },
-  { symbol: 'XLMUSDT', name: 'XLM/USD', basePrice: 0.11 },
-  { symbol: 'LINKUSDT', name: 'LINK/USD', basePrice: 15 },
-  { symbol: 'LTCUSDT', name: 'LTC/USD', basePrice: 85 },
-  { symbol: 'SUIUSDT', name: 'SUI/USD', basePrice: 1.2 },
-  { symbol: 'POLUSDT', name: 'POL/USD', basePrice: 0.55 },
-  { symbol: 'NEARUSDT', name: 'NEAR/USD', basePrice: 5.5 },
-  { symbol: 'UNIUSDT', name: 'UNI/USD', basePrice: 7.2 },
-  { symbol: 'TAOUSDT', name: 'TAO/USD', basePrice: 350 },
-  { symbol: 'SHIBUSDT', name: 'SHIB/USD', basePrice: 0.000025 },
-  { symbol: 'APTUSDT', name: 'APT/USD', basePrice: 9.5 },
-  { symbol: 'ZECUSDT', name: 'ZEC/USD', basePrice: 32 },
-  { symbol: 'CAKEUSDT', name: 'CAKE/USD', basePrice: 2.5 },
-  { symbol: 'AVAXUSDT', name: 'AVAX/USD', basePrice: 35 },
-  { symbol: 'TRXUSDT', name: 'TRX/USD', basePrice: 0.12 }
+  { symbol: 'BTCUSDT', name: 'BTC/USD' },
+  { symbol: 'ETHUSDT', name: 'ETH/USD' },
+  { symbol: 'SOLUSDT', name: 'SOL/USD' },
+  { symbol: 'BNBUSDT', name: 'BNB/USD' },
+  { symbol: 'XRPUSDT', name: 'XRP/USD' },
+  { symbol: 'TONUSDT', name: 'TON/USD' },
+  { symbol: 'ADAUSDT', name: 'ADA/USD' },
+  { symbol: 'DOGEUSDT', name: 'DOGE/USD' },
+  { symbol: 'XLMUSDT', name: 'XLM/USD' },
+  { symbol: 'LINKUSDT', name: 'LINK/USD' },
+  { symbol: 'LTCUSDT', name: 'LTC/USD' },
+  { symbol: 'SUIUSDT', name: 'SUI/USD' },
+  { symbol: 'POLUSDT', name: 'POL/USD' },
+  { symbol: 'NEARUSDT', name: 'NEAR/USD' },
+  { symbol: 'UNIUSDT', name: 'UNI/USD' },
+  { symbol: 'TAOUSDT', name: 'TAO/USD' },
+  { symbol: 'SHIBUSDT', name: 'SHIB/USD' },
+  { symbol: 'APTUSDT', name: 'APT/USD' },
+  { symbol: 'ZECUSDT', name: 'ZEC/USD' },
+  { symbol: 'CAKEUSDT', name: 'CAKE/USD' },
+  { symbol: 'AVAXUSDT', name: 'AVAX/USD' },
+  { symbol: 'TRXUSDT', name: 'TRX/USD' }
 ];
 const TIMEFRAMES = ['1h', '4h'];
 const INTERVAL_MAP = { '1h': '1h', '4h': '4h' };
 
-// ========== STATE ==========
-const cache = {};
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// ========== RATE LIMITER ==========
 let lastRequestTime = 0;
-const MIN_GAP = 3000; // 3 seconds between requests
+const MIN_GAP = 300; // 300ms between requests (MEXC allows 50/5s)
 
-// Simulator fallback prices (keeps app alive if MEXC fails)
-const simPrices = {};
-PAIRS.forEach(p => simPrices[p.symbol] = p.basePrice);
-
-// ========== HELPERS ==========
-async function rateLimitedGet(url, params) {
+async function mexcGet(url, params) {
   const now = Date.now();
   const wait = lastRequestTime + MIN_GAP - now;
   if (wait > 0) await new Promise(r => setTimeout(r, wait));
@@ -70,28 +63,11 @@ async function rateLimitedGet(url, params) {
   });
 }
 
-function simulateCandles(symbol, interval, limit = 100) {
-  if (!simPrices[symbol]) simPrices[symbol] = PAIRS.find(p => p.symbol === symbol)?.basePrice || 100;
-  let price = simPrices[symbol];
-  const candles = [];
-  const ms = interval === '1h' ? 3600000 : 14400000;
-  for (let i = limit - 1; i >= 0; i--) {
-    price += (Math.random() - 0.5) * price * 0.005;
-    if (price <= 0) price = 0.000001;
-    candles.push({
-      timestamp: new Date(Date.now() - i * ms).toISOString(),
-      open: +price.toFixed(6),
-      high: +(price * 1.002).toFixed(6),
-      low: +(price * 0.998).toFixed(6),
-      close: +(price * 1.001).toFixed(6),
-      volume: +(1000 + Math.random() * 5000).toFixed(2)
-    });
-  }
-  simPrices[symbol] = candles[candles.length - 1].close;
-  return candles;
-}
+// ========== CACHE ==========
+const cache = {};
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes (matches signal interval)
 
-// ========== FETCH CANDLES ==========
+// ========== FETCH CANDLES (MEXC ONLY – NO FALLBACK) ==========
 async function fetchCandles(symbol, interval) {
   const cacheKey = `${symbol}_${interval}`;
   const now = Date.now();
@@ -99,15 +75,17 @@ async function fetchCandles(symbol, interval) {
     return cache[cacheKey].data;
   }
 
-  // Try MEXC first
   try {
-    const res = await rateLimitedGet(MEXC_KLINE_URL, {
+    const res = await mexcGet(MEXC_KLINE_URL, {
       symbol,
       interval: INTERVAL_MAP[interval],
       limit: 100
     });
     const klines = res.data;
-    if (!klines || klines.length < 50) throw new Error('Empty or too few candles');
+    if (!klines || klines.length < 50) {
+      console.error(`⚠️ MEXC returned insufficient data for ${symbol} ${interval}`);
+      return null;
+    }
 
     const candles = klines.map(k => ({
       timestamp: k[0],
@@ -117,21 +95,17 @@ async function fetchCandles(symbol, interval) {
       close: parseFloat(k[4]),
       volume: parseFloat(k[5])
     }));
-    // MEXC returns newest first; reverse to ascending
-    candles.reverse();
+    candles.reverse(); // MEXC returns newest first
     cache[cacheKey] = { data: candles, timestamp: now };
-    console.log(`✅ MEXC real data for ${symbol} ${interval}`);
+    console.log(`✅ Real MEXC data for ${symbol} ${interval}`);
     return candles;
   } catch (err) {
-    console.error(`⚠️ MEXC failed for ${symbol} ${interval}: ${err.message}. Using simulator fallback.`);
-    // Fallback to simulator for this call
-    const candles = simulateCandles(symbol, interval);
-    cache[cacheKey] = { data: candles, timestamp: now };
-    return candles;
+    console.error(`❌ MEXC failed for ${symbol} ${interval}: ${err.message}`);
+    return null;
   }
 }
 
-// ========== TECHNICAL INDICATORS (11 strategies) ==========
+// ========== TECHNICAL INDICATORS (all 11 strategies) ==========
 function ema(data, period) {
   if (data.length < period) return [data[data.length - 1]];
   const k = 2 / (period + 1);
@@ -410,7 +384,7 @@ async function tick() {
       io.emit('new_signals', latestSignals);
       console.log(`${newSignals.length} signals generated`);
     } else {
-      console.log('No signals generated (confluence filter).');
+      console.log('No signals generated (filters too strict or data unavailable).');
     }
   } catch (err) {
     console.error('Signal generation error:', err);
