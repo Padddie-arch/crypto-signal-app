@@ -8,6 +8,11 @@ let latestSignals = [];
 
 async function generateAll() {
   const pairs = [
+    { symbol: 'BTCUSDT', name: 'BTC/USD' },
+    { symbol: 'ETHUSDT', name: 'ETH/USD' },
+    { symbol: 'SOLUSDT', name: 'SOL/USD' },
+    { symbol: 'BNBUSDT', name: 'BNB/USD' },
+    { symbol: 'XRPUSDT', name: 'XRP/USD' },
     { symbol: 'TONUSDT', name: 'TON/USD' },
     { symbol: 'ADAUSDT', name: 'ADA/USD' },
     { symbol: 'DOGEUSDT', name: 'DOGE/USD' },
@@ -55,9 +60,9 @@ async function generateAll() {
           direction: consensus.direction,
           price: indicators.price,
           confidence: consensus.confidence,
-          aligned: consensus.aligned,           // strategies agreeing
-          totalActive: consensus.totalActive,   // total active strategies
-          totalStrategies: consensus.totalStrategies,   // <-- new
+          aligned: consensus.aligned,
+          totalActive: consensus.totalActive,
+          totalStrategies: consensus.totalStrategies,
           stopLoss: consensus.stopLoss,
           takeProfit: consensus.takeProfit,
           trailingStop: null,
@@ -67,7 +72,7 @@ async function generateAll() {
           aiTrend: consensus.trend,
           adx: consensus.adx,
           trendStrength: consensus.trend,
-          pattern: consensus.pattern || ''      // <-- new
+          pattern: consensus.pattern || '',
           timestamp: consensus.timestamp
         };
         freshSignals.push(signal);
