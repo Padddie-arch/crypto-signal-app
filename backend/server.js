@@ -17,21 +17,21 @@ const io = socketIo(server, { cors: { origin: "*" } });
 const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';
 const PAIRS = [
   'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT',
-  'TONUSDT','ADAUSDT','DOGEUSDT','XLMUSDT','LINKUSDT',
-  'LTCUSDT','SUIUSDT','POLUSDT','NEARUSDT','UNIUSDT',
-  'TAOUSDT','SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT',
-  'AVAXUSDT','TRXUSDT'
+  'ADAUSDT','DOGEUSDT','XLMUSDT','LINKUSDT','LTCUSDT',
+  'SUIUSDT','POLUSDT','NEARUSDT','UNIUSDT','TAOUSDT',
+  'SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT','AVAXUSDT','TRXUSDT'
 ].map(symbol => ({ symbol, name: symbol.replace('USDT', '/USD') }));
 
-const TIMEFRAMES = ['1h', '4h'];
+const TIMEFRAMES = ['1h', '4h'];   // for signal generation
 const INTERVAL_MAP = {
-  '1h': '60m',   // MEXC uses "60m" for 1 hour
-  '4h': '4h'
+  '1h': '60m',
+  '4h': '4h',
+  '5m': '5m'   // for price ticker
 };
 
 // ========== RATE LIMITER ==========
 let lastRequestTime = 0;
-const MIN_GAP = 300; // 300ms
+const MIN_GAP = 300;
 
 async function mexcGet(url, params) {
   const now = Date.now();
@@ -50,13 +50,15 @@ async function mexcGet(url, params) {
 
 // ========== CACHE ==========
 const cache = {};
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 5 * 60 * 1000;   // 5 minutes for 1h/4h signals
+const PRICE_CACHE_TTL = 30 * 1000; // 30 seconds for 5m prices
 
 // ========== FETCH CANDLES ==========
-async function fetchCandles(symbol, interval) {
+async function fetchCandles(symbol, interval, limit = 100) {
   const cacheKey = `${symbol}_${interval}`;
   const now = Date.now();
-  if (cache[cacheKey] && (now - cache[cacheKey].timestamp) < CACHE_TTL) {
+  const ttl = interval === '5m' ? PRICE_CACHE_TTL : CACHE_TTL;
+  if (cache[cacheKey] && (now - cache[cacheKey].timestamp) < ttl) {
     return cache[cacheKey].data;
   }
 
@@ -64,10 +66,10 @@ async function fetchCandles(symbol, interval) {
     const res = await mexcGet(MEXC_KLINE_URL, {
       symbol,
       interval: INTERVAL_MAP[interval],
-      limit: 100
+      limit
     });
     const klines = res.data;
-    if (!klines || klines.length < 50) {
+    if (!klines || klines.length < 2) {
       console.error(`⚠️ Not enough data for ${symbol} ${interval}`);
       return null;
     }
@@ -80,7 +82,7 @@ async function fetchCandles(symbol, interval) {
       close: parseFloat(k[4]),
       volume: parseFloat(k[5])
     }));
-    candles.reverse();
+    candles.reverse(); // oldest first
     cache[cacheKey] = { data: candles, timestamp: now };
     console.log(`✅ MEXC data for ${symbol} ${interval}`);
     return candles;
@@ -90,7 +92,7 @@ async function fetchCandles(symbol, interval) {
   }
 }
 
-// ========== TECHNICAL INDICATORS (all 11) ==========
+// ========== TECHNICAL INDICATORS (all 11 strategies) ==========
 function ema(data, period) {
   if (data.length < period) return [data[data.length - 1]];
   const k = 2 / (period + 1);
@@ -242,7 +244,7 @@ function vwap(candles) {
   return sumVol > 0 ? sumTPV / sumVol : candles[candles.length - 1].close;
 }
 
-// ========== SIGNAL GENERATION (ADX lowered to 20 for debugging) ==========
+// ========== SIGNAL GENERATION (single timeframe, no confluence) ==========
 function generateSignal(pair, candles, interval) {
   const closes = candles.map(c => c.close);
   const currentPrice = closes[closes.length - 1];
@@ -280,7 +282,7 @@ function generateSignal(pair, candles, interval) {
   if (macdRes.hist > 0) macdVote = 1; else if (macdRes.hist < 0) macdVote = -1;
   const ema9 = ema(closes, 9), ema21 = ema(closes, 21);
   emaVote = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 1 : -1;
-  if (adxRes.adx > 20) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;   // ADX lowered to 20 temporarily
+  if (adxRes.adx > 20) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
   if (volumeSpike) { volVote = currentPrice > closes[closes.length - 2] ? 1 : -1; }
   if (stoch < 20) stochVote = 1; else if (stoch > 80) stochVote = -1;
   ichiVote = ichi.vote || 0;
@@ -299,7 +301,7 @@ function generateSignal(pair, candles, interval) {
   const confidence = Math.round((aligned / 11) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // ADX must still be > 20 (strict enough)
+  // ADX must be > 20
   if (adxRes.adx <= 20) return null;
 
   // VWAP filter
@@ -321,8 +323,6 @@ function generateSignal(pair, candles, interval) {
 
 async function generateAllSignals() {
   const freshSignals = [];
-  const signalsByPair = {};
-  let rawCount = 0;   // for logging
 
   for (const pair of PAIRS) {
     for (const tf of TIMEFRAMES) {
@@ -331,7 +331,6 @@ async function generateAllSignals() {
 
       const signal = generateSignal(pair, candles, tf);
       if (signal) {
-        rawCount++;
         signal.id = Date.now() + Math.random();
         signal.pair = pair.name;
         signal.symbol = pair.symbol;
@@ -339,26 +338,12 @@ async function generateAllSignals() {
         signal.status = 'open';
         signal.outcome = null;
         signal.trailingStop = null;
-
-        if (!signalsByPair[pair.symbol]) signalsByPair[pair.symbol] = {};
-        signalsByPair[pair.symbol][tf] = signal;
+        freshSignals.push(signal);
       }
     }
   }
 
-  console.log(`🔍 Raw signals generated (before confluence): ${rawCount}`);
-
-  // Multi‑timeframe confluence
-  for (const symbol of Object.keys(signalsByPair)) {
-    const pairSignals = signalsByPair[symbol];
-    if (pairSignals['1h'] && pairSignals['4h'] && pairSignals['1h'].direction === pairSignals['4h'].direction) {
-      freshSignals.push(pairSignals['1h'], pairSignals['4h']);
-    } else {
-      console.log(`ℹ️ Confluence failed for ${symbol}: 1h=${!!pairSignals['1h']}, 4h=${!!pairSignals['4h']}, agree=${pairSignals['1h']?.direction === pairSignals['4h']?.direction}`);
-    }
-  }
-
-  console.log(`📊 Final signals after confluence: ${freshSignals.length}`);
+  console.log(`📊 Signals generated: ${freshSignals.length}`);
   return freshSignals;
 }
 
@@ -367,7 +352,7 @@ let signalHistory = [];
 const MAX_HISTORY = 500;
 
 async function tick() {
-  console.log('Generating signals (1h + 4h confluence)...');
+  console.log('Generating signals...');
   try {
     const newSignals = await generateAllSignals();
     if (newSignals.length) {
@@ -376,7 +361,7 @@ async function tick() {
       io.emit('new_signals', latestSignals);
       console.log(`${newSignals.length} signals emitted`);
     } else {
-      console.log('No signals (confluence or filters too strict).');
+      console.log('No signals – all filters too strict.');
     }
   } catch (err) {
     console.error('Signal generation error:', err);
@@ -397,8 +382,8 @@ app.get('/api/stats', (req, res) => {
 app.get('/api/prices', async (req, res) => {
   const prices = {};
   for (const pair of PAIRS) {
-    // Use 1h candles for more recent prices
-    const candles = await fetchCandles(pair.symbol, '1h');
+    // Use 5m candles for the most recent price
+    const candles = await fetchCandles(pair.symbol, '5m', 1);
     if (candles && candles.length) {
       const price = candles[candles.length - 1].close;
       if (price && !isNaN(price) && price > 0) prices[pair.symbol.replace('USDT', '')] = price;
