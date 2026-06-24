@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
+const axios = require('axios');
 
 const app = express();
 app.use(cors());
@@ -13,37 +14,89 @@ const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: "*" } });
 
 // ========== CONFIGURATION ==========
+const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 const PAIRS = [
-  { symbol: 'BTCUSDT', name: 'BTC/USD', basePrice: 67000 },
-  { symbol: 'ETHUSDT', name: 'ETH/USD', basePrice: 3400 },
-  { symbol: 'SOLUSDT', name: 'SOL/USD', basePrice: 180 },
-  { symbol: 'BNBUSDT', name: 'BNB/USD', basePrice: 600 },
-  { symbol: 'XRPUSDT', name: 'XRP/USD', basePrice: 0.62 },
-  { symbol: 'TONUSDT', name: 'TON/USD', basePrice: 7.5 },
-  { symbol: 'ADAUSDT', name: 'ADA/USD', basePrice: 0.45 },
-  { symbol: 'DOGEUSDT', name: 'DOGE/USD', basePrice: 0.15 },
-  { symbol: 'XLMUSDT', name: 'XLM/USD', basePrice: 0.11 },
-  { symbol: 'LINKUSDT', name: 'LINK/USD', basePrice: 15 },
-  { symbol: 'LTCUSDT', name: 'LTC/USD', basePrice: 85 },
-  { symbol: 'SUIUSDT', name: 'SUI/USD', basePrice: 1.2 },
-  { symbol: 'POLUSDT', name: 'POL/USD', basePrice: 0.55 },
-  { symbol: 'NEARUSDT', name: 'NEAR/USD', basePrice: 5.5 },
-  { symbol: 'UNIUSDT', name: 'UNI/USD', basePrice: 7.2 },
-  { symbol: 'TAOUSDT', name: 'TAO/USD', basePrice: 350 },
-  { symbol: 'SHIBUSDT', name: 'SHIB/USD', basePrice: 0.000025 },
-  { symbol: 'APTUSDT', name: 'APT/USD', basePrice: 9.5 },
-  { symbol: 'ZECUSDT', name: 'ZEC/USD', basePrice: 32 },
-  { symbol: 'CAKEUSDT', name: 'CAKE/USD', basePrice: 2.5 },
-  { symbol: 'AVAXUSDT', name: 'AVAX/USD', basePrice: 35 },
-  { symbol: 'TRXUSDT', name: 'TRX/USD', basePrice: 0.12 }
+  { symbol: 'BTCUSDT', id: 'bitcoin', name: 'BTC/USD' },
+  { symbol: 'ETHUSDT', id: 'ethereum', name: 'ETH/USD' },
+  { symbol: 'SOLUSDT', id: 'solana', name: 'SOL/USD' },
+  { symbol: 'BNBUSDT', id: 'binancecoin', name: 'BNB/USD' },
+  { symbol: 'XRPUSDT', id: 'ripple', name: 'XRP/USD' },
+  { symbol: 'TONUSDT', id: 'the-open-network', name: 'TON/USD' },
+  { symbol: 'ADAUSDT', id: 'cardano', name: 'ADA/USD' },
+  { symbol: 'DOGEUSDT', id: 'dogecoin', name: 'DOGE/USD' },
+  { symbol: 'XLMUSDT', id: 'stellar', name: 'XLM/USD' },
+  { symbol: 'LINKUSDT', id: 'chainlink', name: 'LINK/USD' },
+  { symbol: 'LTCUSDT', id: 'litecoin', name: 'LTC/USD' },
+  { symbol: 'SUIUSDT', id: 'sui', name: 'SUI/USD' },
+  { symbol: 'POLUSDT', id: 'polygon-ecosystem-token', name: 'POL/USD' },
+  { symbol: 'NEARUSDT', id: 'near', name: 'NEAR/USD' },
+  { symbol: 'UNIUSDT', id: 'uniswap', name: 'UNI/USD' },
+  { symbol: 'TAOUSDT', id: 'bittensor', name: 'TAO/USD' },
+  { symbol: 'SHIBUSDT', id: 'shiba-inu', name: 'SHIB/USD' },
+  { symbol: 'APTUSDT', id: 'aptos', name: 'APT/USD' },
+  { symbol: 'ZECUSDT', id: 'zcash', name: 'ZEC/USD' },
+  { symbol: 'CAKEUSDT', id: 'pancakeswap-token', name: 'CAKE/USD' },
+  { symbol: 'AVAXUSDT', id: 'avalanche-2', name: 'AVAX/USD' },
+  { symbol: 'TRXUSDT', id: 'tron', name: 'TRX/USD' }
 ];
 const TIMEFRAMES = ['1h', '4h'];
 
-// Simulator state – walks prices realistically every minute
-const simPrices = {};
-PAIRS.forEach(p => simPrices[p.symbol] = p.basePrice);
+// ========== RATE LIMITER ==========
+let lastRequestTime = 0;
+const MIN_GAP = 2500; // 2.5 seconds between CoinGecko calls
 
-// ========== TECHNICAL INDICATORS (all 11) ==========
+async function coinGeckoGet(url, params) {
+  const now = Date.now();
+  const wait = lastRequestTime + MIN_GAP - now;
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastRequestTime = Date.now();
+  return axios.get(url, { params, timeout: 15000 });
+}
+
+// ========== CACHE ==========
+const cache = {};
+const CACHE_TTL = 4 * 60 * 1000; // 4 minutes (matches signal interval)
+
+// ========== FETCH REAL DATA ==========
+async function fetchCandles(coinId, interval) {
+  const cacheKey = `${coinId}_${interval}`;
+  const now = Date.now();
+  if (cache[cacheKey] && (now - cache[cacheKey].timestamp) < CACHE_TTL) {
+    return cache[cacheKey].data;
+  }
+
+  try {
+    let days;
+    switch (interval) {
+      case '1h': days = 5; break;   // enough for 100+ candles
+      case '4h': days = 20; break;
+      default: days = 5;
+    }
+
+    const url = `${COINGECKO_BASE}/coins/${coinId}/ohlc`;
+    const res = await coinGeckoGet(url, { vs_currency: 'usd', days });
+    const ohlc = res.data;   // array of [timestamp, open, high, low, close]
+    if (!ohlc || ohlc.length < 50) throw new Error('Not enough data');
+
+    // CoinGecko returns seconds timestamps, we convert to ms
+    const candles = ohlc.map(c => ({
+      timestamp: c[0] * 1000,
+      open: c[1],
+      high: c[2],
+      low: c[3],
+      close: c[4],
+      volume: 0   // CoinGecko OHLC doesn't include volume
+    }));
+
+    cache[cacheKey] = { data: candles, timestamp: now };
+    return candles;
+  } catch (err) {
+    console.error(`CoinGecko failed for ${coinId} ${interval}: ${err.message}`);
+    return null;
+  }
+}
+
+// ========== TECHNICAL INDICATORS (full 11 strategies) ==========
 function ema(data, period) {
   if (data.length < period) return [data[data.length - 1]];
   const k = 2 / (period + 1);
@@ -52,25 +105,22 @@ function ema(data, period) {
   return res;
 }
 
-function rsiValues(closes, period = 14) {
+function rsiArr(closes, period = 14) {
   if (closes.length < period + 1) return Array(closes.length).fill(50);
-  const gains = [], losses = [];
-  const rsArr = [];
-  let avgGain = 0, avgLoss = 0;
+  let gains = 0, losses = 0;
   for (let i = 1; i <= period; i++) {
     const diff = closes[i] - closes[i - 1];
-    avgGain += Math.max(0, diff);
-    avgLoss += Math.max(0, -diff);
+    if (diff >= 0) gains += diff; else losses -= diff;
   }
-  avgGain /= period; avgLoss /= period;
-  rsArr.push(100 - (100 / (1 + avgGain / (avgLoss || 1e-10))));
+  let avgGain = gains / period, avgLoss = losses / period;
+  const result = [100 - (100 / (1 + avgGain / (avgLoss || 1e-10)))];
   for (let i = period + 1; i < closes.length; i++) {
     const diff = closes[i] - closes[i - 1];
     avgGain = (avgGain * (period - 1) + Math.max(0, diff)) / period;
     avgLoss = (avgLoss * (period - 1) + Math.max(0, -diff)) / period;
-    rsArr.push(100 - (100 / (1 + avgGain / (avgLoss || 1e-10))));
+    result.push(100 - (100 / (1 + avgGain / (avgLoss || 1e-10))));
   }
-  return rsArr;
+  return result;
 }
 
 function adx(candles, period = 14) {
@@ -84,8 +134,7 @@ function adx(candles, period = 14) {
     plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
     minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
   }
-  const atrSmooth = [tr[0]];
-  const plusSmooth = [plusDM[0]], minusSmooth = [minusDM[0]];
+  const atrSmooth = [tr[0]], plusSmooth = [plusDM[0]], minusSmooth = [minusDM[0]];
   for (let i = 1; i < tr.length; i++) {
     atrSmooth.push((atrSmooth[i - 1] * (period - 1) + tr[i]) / period);
     plusSmooth.push((plusSmooth[i - 1] * (period - 1) + plusDM[i]) / period);
@@ -104,16 +153,14 @@ function atr(candles, period = 14) {
   if (candles.length < period + 1) return 0;
   const highs = candles.map(c => c.high), lows = candles.map(c => c.low), closes = candles.map(c => c.close);
   const tr = [];
-  for (let i = 1; i < candles.length; i++) {
-    tr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
-  }
+  for (let i = 1; i < candles.length; i++) tr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
   const atrArr = [tr[0]];
   for (let i = 1; i < tr.length; i++) atrArr.push((atrArr[i - 1] * (period - 1) + tr[i]) / period);
   return atrArr[atrArr.length - 1];
 }
 
 function stochRSI(closes, period = 14) {
-  const rsi = rsiValues(closes, period);
+  const rsi = rsiArr(closes, period);
   const recent = rsi.slice(-period);
   const min = Math.min(...recent), max = Math.max(...recent);
   if (max === min) return 50;
@@ -145,8 +192,7 @@ function bollingerPercentB(closes, period = 20, stdDev = 2) {
 function aroon(candles, period = 14) {
   if (candles.length < period) return { vote: 0 };
   const highs = candles.map(c => c.high), lows = candles.map(c => c.low);
-  const lastHigh = Math.max(...highs.slice(-period));
-  const lastLow = Math.min(...lows.slice(-period));
+  const lastHigh = Math.max(...highs.slice(-period)), lastLow = Math.min(...lows.slice(-period));
   const daysSinceHigh = highs.slice(-period).reverse().findIndex(h => h === lastHigh);
   const daysSinceLow = lows.slice(-period).reverse().findIndex(l => l === lastLow);
   const aroonUp = ((period - daysSinceHigh) / period) * 100;
@@ -160,7 +206,6 @@ function candlestickPattern(candles) {
   if (candles.length < 2) return { vote: 0, pattern: '' };
   const last = candles[candles.length - 1], prev = candles[candles.length - 2];
   const body = last.close - last.open, prevBody = prev.close - prev.open;
-  const range = last.high - last.low;
   let vote = 0, pattern = '';
   if (prevBody < 0 && body > 0 && last.close > prev.open && last.open < prev.close) {
     vote = 1; pattern = 'Bull Engulf';
@@ -177,17 +222,17 @@ function candlestickPattern(candles) {
 function rsiDivergence(candles, period = 14) {
   if (candles.length < 20) return { vote: 0, divergence: '' };
   const closes = candles.map(c => c.close);
-  const rsiArr = rsiValues(closes, period);
-  const priceWindow = closes.slice(-10), rsiWindow = rsiArr.slice(-10);
+  const rsi = rsiArr(closes, period);
+  const pw = closes.slice(-10), rw = rsi.slice(-10);
   let vote = 0, divergence = '';
-  const priceMinIdx = priceWindow.indexOf(Math.min(...priceWindow));
-  const rsiMinIdx = rsiWindow.indexOf(Math.min(...rsiWindow));
-  if (priceMinIdx === priceWindow.length - 1 && rsiMinIdx !== priceWindow.length - 1 && rsiWindow[priceWindow.length - 1] > Math.min(...rsiWindow)) {
+  const priceMinIdx = pw.indexOf(Math.min(...pw));
+  const rsiMinIdx = rw.indexOf(Math.min(...rw));
+  if (priceMinIdx === pw.length - 1 && rsiMinIdx !== pw.length - 1 && rw[priceMinIdx] > Math.min(...rw)) {
     vote = 1; divergence = 'bullish';
   }
-  const priceMaxIdx = priceWindow.indexOf(Math.max(...priceWindow));
-  const rsiMaxIdx = rsiWindow.indexOf(Math.max(...rsiWindow));
-  if (priceMaxIdx === priceWindow.length - 1 && rsiMaxIdx !== priceWindow.length - 1 && rsiWindow[priceWindow.length - 1] < Math.max(...rsiWindow)) {
+  const priceMaxIdx = pw.indexOf(Math.max(...pw));
+  const rsiMaxIdx = rw.indexOf(Math.max(...rw));
+  if (priceMaxIdx === pw.length - 1 && rsiMaxIdx !== pw.length - 1 && rw[priceMaxIdx] < Math.max(...rw)) {
     vote = -1; divergence = 'bearish';
   }
   return { vote, divergence };
@@ -197,58 +242,28 @@ function vwap(candles) {
   let sumTPV = 0, sumVol = 0;
   for (const c of candles) {
     const tp = (c.high + c.low + c.close) / 3;
-    sumTPV += tp * c.volume;
-    sumVol += c.volume;
+    sumTPV += tp * (c.volume || 1);
+    sumVol += (c.volume || 1);
   }
   return sumVol > 0 ? sumTPV / sumVol : candles[candles.length - 1].close;
 }
 
-// ========== CANDLE GENERATION (realistic walk) ==========
-function generateCandles(symbol, interval, limit = 100) {
-  if (!simPrices[symbol]) simPrices[symbol] = PAIRS.find(p => p.symbol === symbol)?.basePrice || 100;
-  let price = simPrices[symbol];
-  const candles = [];
-  const ms = interval === '1h' ? 3600000 : 14400000;
-  for (let i = limit - 1; i >= 0; i--) {
-    price += (Math.random() - 0.5) * price * 0.005;
-    if (price <= 0) price = 0.000001;
-    const open = price;
-    const close = price + (Math.random() - 0.5) * price * 0.003;
-    const high = Math.max(open, close) + Math.random() * price * 0.002;
-    const low = Math.min(open, close) - Math.random() * price * 0.002;
-    const volume = (1000 + Math.random() * 5000) * (1 + Math.abs(price - simPrices[symbol]) / price * 10);
-    candles.push({
-      timestamp: new Date(Date.now() - i * ms).toISOString(),
-      open: +open.toFixed(6),
-      high: +high.toFixed(6),
-      low: +low.toFixed(6),
-      close: +close.toFixed(6),
-      volume: +volume.toFixed(2)
-    });
-  }
-  simPrices[symbol] = candles[candles.length - 1].close;
-  return candles;
-}
-
-// ========== SIGNAL GENERATION (all 11 strategies) ==========
+// ========== SIGNAL GENERATION ==========
 function generateSignal(pair, candles, interval) {
   const closes = candles.map(c => c.close);
-  const volumes = candles.map(c => c.volume);
   const currentPrice = closes[closes.length - 1];
   if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) return null;
 
-  const rsiArr = rsiValues(closes, 14);
-  const lastRSI = rsiArr[rsiArr.length - 1];
+  const rsiVals = rsiArr(closes, 14);
+  const lastRSI = rsiVals[rsiVals.length - 1];
   const macdRes = (() => {
     const e12 = ema(closes, 12), e26 = ema(closes, 26);
-    const macdLine = e12.map((v, i) => v - e26[i]);
-    const signal = ema(macdLine, 9);
-    return { macd: macdLine[macdLine.length - 1] || 0, hist: (macdLine[macdLine.length - 1] || 0) - (signal[signal.length - 1] || 0) };
+    const macdL = e12.map((v, i) => v - e26[i]);
+    const sig = ema(macdL, 9);
+    return { macd: macdL[macdL.length - 1] || 0, hist: (macdL[macdL.length - 1] || 0) - (sig[sig.length - 1] || 0) };
   })();
   const adxRes = adx(candles, 14);
-  const volSma = volumes.length > 10 ? volumes.slice(-10).reduce((a, b) => a + b, 0) / 10 : volumes[volumes.length - 1];
-  const lastVol = volumes[volumes.length - 1];
-  const volumeSpike = lastVol > volSma * 1.5;
+  const volumeSpike = false;  // CoinGecko OHLC has no volume
   const stoch = stochRSI(closes, 14);
   const ichi = ichimoku(candles);
   const boll = bollingerPercentB(closes, 20, 2);
@@ -259,7 +274,7 @@ function generateSignal(pair, candles, interval) {
   const currentATR = atr(candles, 14) || currentPrice * 0.01;
   const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a, b) => a + b, 0) / 20 : currentPrice;
 
-  // Votes
+  // Votes (volume strategy always neutral)
   let rsiVote = 0, macdVote = 0, emaVote = 0, adxVote = 0, volVote = 0, stochVote = 0,
       ichiVote = 0, bollVote = 0, aroonVote = 0, candleVote = 0, divVote = 0;
 
@@ -268,10 +283,7 @@ function generateSignal(pair, candles, interval) {
   const ema9 = ema(closes, 9), ema21 = ema(closes, 21);
   emaVote = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 1 : -1;
   if (adxRes.adx > 20) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
-  if (volumeSpike) {
-    const prevClose = closes[closes.length - 2];
-    volVote = currentPrice > prevClose ? 1 : -1;
-  }
+  if (volumeSpike) { volVote = currentPrice > closes[closes.length - 2] ? 1 : -1; }
   if (stoch < 20) stochVote = 1; else if (stoch > 80) stochVote = -1;
   ichiVote = ichi.vote || 0;
   bollVote = boll.vote || 0;
@@ -283,13 +295,13 @@ function generateSignal(pair, candles, interval) {
   const buyVotes = votes.filter(v => v === 1).length;
   const sellVotes = votes.filter(v => v === -1).length;
   const totalActive = votes.filter(v => v !== 0).length;
-  if (totalActive < 4) return null;   // require at least 4 active strategies
+  if (totalActive < 3) return null;   // at least 3 active strategies
 
   const aligned = Math.max(buyVotes, sellVotes);
   const confidence = Math.round((aligned / 11) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // ADX filter (must be > 20)
+  // Filter: ADX > 20
   if (adxRes.adx <= 20) return null;
 
   // VWAP filter
@@ -309,15 +321,16 @@ function generateSignal(pair, candles, interval) {
   };
 }
 
-// ========== MAIN GENERATION ==========
+// ========== MAIN GENERATION (fetches all pairs) ==========
 async function generateAllSignals() {
   const freshSignals = [];
   const signalsByPair = {};
 
   for (const pair of PAIRS) {
     for (const tf of TIMEFRAMES) {
-      const candles = generateCandles(pair.symbol, tf);
+      const candles = await fetchCandles(pair.id, tf);
       if (!candles || candles.length < 50) continue;
+
       const signal = generateSignal(pair, candles, tf);
       if (signal) {
         signal.id = Date.now() + Math.random();
@@ -334,12 +347,11 @@ async function generateAllSignals() {
     }
   }
 
-  // Multi‑timeframe confluence: both 1h and 4h must exist and agree
+  // Multi‑timeframe confluence: only fire if both 1h & 4h exist and agree
   for (const symbol of Object.keys(signalsByPair)) {
     const pairSignals = signalsByPair[symbol];
     if (pairSignals['1h'] && pairSignals['4h'] && pairSignals['1h'].direction === pairSignals['4h'].direction) {
-      freshSignals.push(pairSignals['1h']);
-      freshSignals.push(pairSignals['4h']);
+      freshSignals.push(pairSignals['1h'], pairSignals['4h']);
     }
   }
 
@@ -352,24 +364,25 @@ let signalHistory = [];
 const MAX_HISTORY = 500;
 
 async function tick() {
-  console.log('Generating signals...');
+  console.log('Fetching real data from CoinGecko...');
   try {
     const newSignals = await generateAllSignals();
     if (newSignals.length) {
       latestSignals = newSignals;
       signalHistory = [...signalHistory, ...newSignals].slice(-MAX_HISTORY);
       io.emit('new_signals', latestSignals);
-      console.log(`${newSignals.length} signals generated`);
+      console.log(`${newSignals.length} real signals generated`);
     } else {
-      console.log('No signals – filters too strict.');
+      console.log('No confluence signals – market filtering.');
     }
   } catch (err) {
     console.error('Signal generation error:', err);
   }
 }
 
-setTimeout(tick, 3000);
-setInterval(tick, 60000);
+// First generation after 10 seconds (let server start), then every 4 minutes
+setTimeout(tick, 10000);
+setInterval(tick, 4 * 60 * 1000);
 
 // ========== ROUTES ==========
 app.get('/api/signals', (req, res) => res.json(latestSignals));
@@ -379,9 +392,16 @@ app.get('/api/stats', (req, res) => {
   const wins = closed.filter(t => t.outcome === 'win').length;
   res.json({ wins, total: closed.length, winRate: closed.length ? ((wins / closed.length) * 100).toFixed(1) : 0 });
 });
-app.get('/api/prices', (req, res) => {
+app.get('/api/prices', async (req, res) => {
   const prices = {};
-  PAIRS.forEach(p => prices[p.symbol.replace('USDT', '')] = simPrices[p.symbol]);
+  // Fetch latest 1h candle for each pair (cached)
+  for (const pair of PAIRS) {
+    const candles = await fetchCandles(pair.id, '1h', 1);
+    if (candles && candles.length) {
+      const price = candles[candles.length - 1].close;
+      if (price && !isNaN(price) && price > 0) prices[pair.symbol.replace('USDT', '')] = price;
+    }
+  }
   res.json(prices);
 });
 app.post('/api/autotrade', (req, res) => res.json({ success: true }));
@@ -391,4 +411,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));  
