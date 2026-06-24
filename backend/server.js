@@ -29,11 +29,19 @@ const CRYPTO_PAIRS = [
 
 // Metals & Forex pairs (Twelve Data only – no simulator)
 const OTHER_PAIRS = [
+  // Metals
   { symbol: 'XAU/USD', name: 'XAU/USD', type: 'metal' },
   { symbol: 'XAG/USD', name: 'XAG/USD', type: 'metal' },
+  { symbol: 'XPT/USD', name: 'XPT/USD', type: 'metal' },  // Platinum
+  { symbol: 'XPD/USD', name: 'XPD/USD', type: 'metal' },  // Palladium
+  // Major Forex
   { symbol: 'EUR/USD', name: 'EUR/USD', type: 'forex' },
   { symbol: 'GBP/USD', name: 'GBP/USD', type: 'forex' },
-  { symbol: 'USD/JPY', name: 'USD/JPY', type: 'forex' }
+  { symbol: 'USD/JPY', name: 'USD/JPY', type: 'forex' },
+  { symbol: 'USD/CHF', name: 'USD/CHF', type: 'forex' },
+  { symbol: 'AUD/USD', name: 'AUD/USD', type: 'forex' },
+  { symbol: 'USD/CAD', name: 'USD/CAD', type: 'forex' },
+  { symbol: 'NZD/USD', name: 'NZD/USD', type: 'forex' }
 ];
 
 const ALL_PAIRS = [...CRYPTO_PAIRS, ...OTHER_PAIRS];
