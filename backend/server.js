@@ -381,7 +381,7 @@ function generateSignal(pair, candles, interval, livePrice) {
   if (macdRes.hist > 0) macdVote = 1; else if (macdRes.hist < 0) macdVote = -1;
   const ema9 = ema(closes, 9), ema21 = ema(closes, 21);
   emaVote = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 1 : -1;
-  if (adxRes.adx > 20) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
+  if (adxRes.adx > 25) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
   if (volumeSpike) { volVote = currentPrice > closes[closes.length - 2] ? 1 : -1; }
   if (stoch < 20) stochVote = 1; else if (stoch > 80) stochVote = -1;
   ichiVote = ichi.vote || 0;
@@ -400,7 +400,7 @@ function generateSignal(pair, candles, interval, livePrice) {
   const confidence = Math.round((aligned / 11) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  if (adxRes.adx <= 20) return null;
+  if (adxRes.adx <= 25) return null;
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
