@@ -28,19 +28,13 @@ const CRYPTO_PAIRS = [
 ].map(symbol => ({ symbol, name: symbol.replace('USDT', '/USD'), type: 'crypto' }));
 
 // Metals & Forex pairs (Twelve Data only – no simulator)
+// Reduced to 3 essential pairs to stay within free tier limits
 const OTHER_PAIRS = [
   // Metals (Twelve Data symbols use no slash)
-   // Metals (Twelve Data symbols use no slash)
   { symbol: 'XAU/USD', name: 'XAU/USD', tdSymbol: 'XAUUSD', type: 'metal' },
   { symbol: 'XAG/USD', name: 'XAG/USD', tdSymbol: 'XAGUSD', type: 'metal' },
-  // Major Forex
-  { symbol: 'EUR/USD', name: 'EUR/USD', tdSymbol: 'EUR/USD', type: 'forex' },
-  { symbol: 'GBP/USD', name: 'GBP/USD', tdSymbol: 'GBP/USD', type: 'forex' },
-  { symbol: 'USD/JPY', name: 'USD/JPY', tdSymbol: 'USD/JPY', type: 'forex' },
-  { symbol: 'USD/CHF', name: 'USD/CHF', tdSymbol: 'USD/CHF', type: 'forex' },
-  { symbol: 'AUD/USD', name: 'AUD/USD', tdSymbol: 'AUD/USD', type: 'forex' },
-  { symbol: 'USD/CAD', name: 'USD/CAD', tdSymbol: 'USD/CAD', type: 'forex' },
-  { symbol: 'NZD/USD', name: 'NZD/USD', tdSymbol: 'NZD/USD', type: 'forex' }
+  // Forex
+  { symbol: 'EUR/USD', name: 'EUR/USD', tdSymbol: 'EUR/USD', type: 'forex' }
 ];
 
 const ALL_PAIRS = [...CRYPTO_PAIRS, ...OTHER_PAIRS];
@@ -67,9 +61,9 @@ async function rateLimitedGet(url, params) {
   });
 }
 
-// Twelve Data rate limiter (800 req/day, safe with 8 seconds gap)
+// Twelve Data rate limiter (800 req/day, safe with 15 seconds gap)
 let lastTDRequestTime = 0;
-const TD_MIN_GAP = 8000; // 8 seconds
+const TD_MIN_GAP = 15000; // 15 seconds
 
 async function tdGet(url, params) {
   const now = Date.now();
@@ -477,6 +471,9 @@ async function generateAllSignals() {
     const livePrice = await fetchLivePrice(pair);
     if (!livePrice) continue;
     for (const tf of TIMEFRAMES) {
+      // For metals/forex, only use 1h to reduce Twelve Data calls
+      if (pair.type !== 'crypto' && tf !== '1h') continue;
+
       const candles = await fetchCandles(pair, tf);
       if (!candles || candles.length < 50) continue;
       const signal = generateSignal(pair, candles, tf, livePrice);
