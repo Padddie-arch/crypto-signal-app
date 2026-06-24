@@ -14,8 +14,8 @@ const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: "*" } });
 
 // ========== CONFIGURATION ==========
-const MEXC_TICKER_URL = 'https://api.mexc.com/api/v3/ticker/price';   // live price
-const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';         // candles
+const MEXC_TICKER_URL = 'https://api.mexc.com/api/v3/ticker/price';
+const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';
 
 const PAIRS = [
   'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT',
@@ -25,14 +25,11 @@ const PAIRS = [
 ].map(symbol => ({ symbol, name: symbol.replace('USDT', '/USD') }));
 
 const TIMEFRAMES = ['1h', '4h'];
-const INTERVAL_MAP = {
-  '1h': '60m',
-  '4h': '4h'
-};
+const INTERVAL_MAP = { '1h': '60m', '4h': '4h' };
 
 // ========== RATE LIMITER ==========
 let lastRequestTime = 0;
-const MIN_GAP = 200;   // 200ms between requests
+const MIN_GAP = 200;
 
 async function mexcGet(url, params) {
   const now = Date.now();
@@ -51,19 +48,17 @@ async function mexcGet(url, params) {
 
 // ========== CACHES ==========
 const klineCache = {};
-const KLINE_CACHE_TTL = 5 * 60 * 1000;   // 5 minutes for candles
-
+const KLINE_CACHE_TTL = 5 * 60 * 1000;
 const priceCache = {};
-const PRICE_CACHE_TTL = 30 * 1000;       // 30 seconds for live prices
+const PRICE_CACHE_TTL = 30 * 1000;
 
-// ========== FETCH LIVE PRICE (ticker) ==========
+// ========== LIVE PRICE ==========
 async function fetchLivePrice(symbol) {
   const cacheKey = `price_${symbol}`;
   const now = Date.now();
   if (priceCache[cacheKey] && (now - priceCache[cacheKey].timestamp) < PRICE_CACHE_TTL) {
     return priceCache[cacheKey].price;
   }
-
   try {
     const res = await mexcGet(MEXC_TICKER_URL, { symbol });
     const price = parseFloat(res.data?.price);
@@ -76,14 +71,13 @@ async function fetchLivePrice(symbol) {
   }
 }
 
-// ========== FETCH CANDLES (klines) ==========
+// ========== CANDLES ==========
 async function fetchCandles(symbol, interval, minCandles = 50) {
   const cacheKey = `kline_${symbol}_${interval}`;
   const now = Date.now();
   if (klineCache[cacheKey] && (now - klineCache[cacheKey].timestamp) < KLINE_CACHE_TTL) {
     return klineCache[cacheKey].data;
   }
-
   try {
     const res = await mexcGet(MEXC_KLINE_URL, {
       symbol,
@@ -92,10 +86,9 @@ async function fetchCandles(symbol, interval, minCandles = 50) {
     });
     const klines = res.data;
     if (!klines || klines.length < minCandles) {
-      console.error(`⚠️ Not enough candles for ${symbol} ${interval} (needed ${minCandles}, got ${klines?.length || 0})`);
+      console.error(`⚠️ Not enough candles for ${symbol} ${interval}`);
       return null;
     }
-
     const candles = klines.map(k => ({
       timestamp: k[0],
       open: parseFloat(k[1]),
@@ -104,7 +97,7 @@ async function fetchCandles(symbol, interval, minCandles = 50) {
       close: parseFloat(k[4]),
       volume: parseFloat(k[5])
     }));
-    candles.reverse(); // MEXC returns newest first → oldest first
+    candles.reverse();
     klineCache[cacheKey] = { data: candles, timestamp: now };
     return candles;
   } catch (err) {
@@ -113,7 +106,7 @@ async function fetchCandles(symbol, interval, minCandles = 50) {
   }
 }
 
-// ========== TECHNICAL INDICATORS (all 11 strategies) ==========
+// ========== TECHNICAL INDICATORS (all 11) ==========
 function ema(data, period) {
   if (data.length < period) return [data[data.length - 1]];
   const k = 2 / (period + 1);
@@ -265,14 +258,12 @@ function vwap(candles) {
   return sumVol > 0 ? sumTPV / sumVol : candles[candles.length - 1].close;
 }
 
-// ========== SIGNAL GENERATION (uses live price for entry) ==========
+// ========== SIGNAL GENERATION ==========
 function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
-  // Use live price as the current price for all calculations
   const currentPrice = livePrice;
   if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) return null;
 
-  // Indicators are still based on historical candle closes (accurate)
   const rsiVals = rsiArr(closes, 14);
   const lastRSI = rsiVals[rsiVals.length - 1];
   const macdRes = (() => {
@@ -324,21 +315,16 @@ function generateSignal(pair, candles, interval, livePrice) {
   const confidence = Math.round((aligned / 11) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // ADX must be > 20
   if (adxRes.adx <= 20) return null;
-
-  // VWAP filter (using live price)
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
-  // Stop loss and take profit based on ATR and live price
   const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
   const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3 : currentPrice - currentATR * 3;
 
   return {
     direction, confidence, aligned, totalActive, totalStrategies: 11,
-    price: currentPrice,      // live price
-    stopLoss, takeProfit,
+    price: currentPrice, stopLoss, takeProfit,
     rsi: lastRSI, macd: macdRes.hist, volumeSpike,
     adx: adxRes.adx, vwap: vwapVal,
     divergence: div.divergence || '', pattern: candlePat.pattern || '',
@@ -346,18 +332,41 @@ function generateSignal(pair, candles, interval, livePrice) {
   };
 }
 
+// ========== PUSH NOTIFICATIONS ==========
+async function sendPushNotifications(signals) {
+  const appId = process.env.ONESIGNAL_APP_ID;
+  const apiKey = process.env.ONESIGNAL_REST_API_KEY;
+  if (!appId || !apiKey) return;
+
+  // Only send if there is at least one signal with aligned >= 8
+  const highAlign = signals.filter(s => s.aligned >= 8);
+  if (highAlign.length === 0) return;
+
+  const top = highAlign.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/11)`).join(', ');
+  try {
+    await axios.post('https://onesignal.com/api/v1/notifications', {
+      app_id: appId,
+      included_segments: ['All'],
+      contents: { en: `🔥 ${highAlign.length} strong signal(s): ${top}` },
+      headings: { en: 'High‑Confidence Alert' }
+    }, {
+      headers: { Authorization: `Basic ${apiKey}` }
+    });
+    console.log('✅ Push notification sent');
+  } catch (err) {
+    console.error('❌ Push notification failed:', err.response?.data || err.message);
+  }
+}
+
+// ========== MAIN GENERATION ==========
 async function generateAllSignals() {
   const freshSignals = [];
-
   for (const pair of PAIRS) {
-    // Fetch live price once per pair (reuse for both timeframes)
     const livePrice = await fetchLivePrice(pair.symbol);
-    if (!livePrice) continue;   // skip if we can't get live price
-
+    if (!livePrice) continue;
     for (const tf of TIMEFRAMES) {
       const candles = await fetchCandles(pair.symbol, tf);
       if (!candles || candles.length < 50) continue;
-
       const signal = generateSignal(pair, candles, tf, livePrice);
       if (signal) {
         signal.id = Date.now() + Math.random();
@@ -371,7 +380,6 @@ async function generateAllSignals() {
       }
     }
   }
-
   console.log(`📊 Signals generated: ${freshSignals.length}`);
   return freshSignals;
 }
@@ -388,9 +396,11 @@ async function tick() {
       latestSignals = newSignals;
       signalHistory = [...signalHistory, ...newSignals].slice(-MAX_HISTORY);
       io.emit('new_signals', latestSignals);
+      // Send push for 8/11+ signals
+      sendPushNotifications(newSignals);
       console.log(`${newSignals.length} signals emitted`);
     } else {
-      console.log('No signals – filters too strict or live price unavailable.');
+      console.log('No signals – filters too strict.');
     }
   } catch (err) {
     console.error('Signal generation error:', err);
@@ -412,9 +422,7 @@ app.get('/api/prices', async (req, res) => {
   const prices = {};
   for (const pair of PAIRS) {
     const livePrice = await fetchLivePrice(pair.symbol);
-    if (livePrice !== null) {
-      prices[pair.symbol.replace('USDT', '')] = livePrice;
-    }
+    if (livePrice !== null) prices[pair.symbol.replace('USDT', '')] = livePrice;
   }
   res.json(prices);
 });
