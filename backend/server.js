@@ -321,10 +321,11 @@ function generateSignal(pair, candles, interval, livePrice) {
 
   const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
   const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3 : currentPrice - currentATR * 3;
+  const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
 
   return {
     direction, confidence, aligned, totalActive, totalStrategies: 11,
-    price: currentPrice, stopLoss, takeProfit,
+    price: currentPrice, stopLoss, takeProfit, trailingStop,
     rsi: lastRSI, macd: macdRes.hist, volumeSpike,
     adx: adxRes.adx, vwap: vwapVal,
     divergence: div.divergence || '', pattern: candlePat.pattern || '',
@@ -338,7 +339,6 @@ async function sendPushNotifications(signals) {
   const apiKey = process.env.ONESIGNAL_REST_API_KEY;
   if (!appId || !apiKey) return;
 
-  // Only send if there is at least one signal with aligned >= 8
   const highAlign = signals.filter(s => s.aligned >= 8);
   if (highAlign.length === 0) return;
 
@@ -375,9 +375,7 @@ async function generateAllSignals() {
         signal.timeframe = tf;
         signal.status = 'open';
         signal.outcome = null;
-        trailingStop: direction === 'BUY'
-  ? currentPrice - currentATR * 1.0
-  : currentPrice + currentATR * 1.0,
+        // trailingStop already inside signal object
         freshSignals.push(signal);
       }
     }
@@ -398,7 +396,6 @@ async function tick() {
       latestSignals = newSignals;
       signalHistory = [...signalHistory, ...newSignals].slice(-MAX_HISTORY);
       io.emit('new_signals', latestSignals);
-      // Send push for 8/11+ signals
       sendPushNotifications(newSignals);
       console.log(`${newSignals.length} signals emitted`);
     } else {
