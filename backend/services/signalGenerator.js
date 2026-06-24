@@ -8,32 +8,16 @@ let latestSignals = [];
 
 async function generateAll() {
   const pairs = [
-    { symbol: 'BTCUSDT', name: 'BTC/USD' },
-    { symbol: 'ETHUSDT', name: 'ETH/USD' },
-    { symbol: 'SOLUSDT', name: 'SOL/USD' },
-    { symbol: 'BNBUSDT', name: 'BNB/USD' },
-    { symbol: 'XRPUSDT', name: 'XRP/USD' },
-    { symbol: 'TONUSDT', name: 'TON/USD' },
-    { symbol: 'ADAUSDT', name: 'ADA/USD' },
-    { symbol: 'DOGEUSDT', name: 'DOGE/USD' },
-    { symbol: 'XLMUSDT', name: 'XLM/USD' },
-    { symbol: 'LINKUSDT', name: 'LINK/USD' },
-    { symbol: 'LTCUSDT', name: 'LTC/USD' },
-    { symbol: 'SUIUSDT', name: 'SUI/USD' },
-    { symbol: 'POLUSDT', name: 'POL/USD' },
-    { symbol: 'NEARUSDT', name: 'NEAR/USD' },
-    { symbol: 'UNIUSDT', name: 'UNI/USD' },
-    { symbol: 'TAOUSDT', name: 'TAO/USD' },
-    { symbol: 'SHIBUSDT', name: 'SHIB/USD' },
-    { symbol: 'APTUSDT', name: 'APT/USD' },
-    { symbol: 'ZECUSDT', name: 'ZEC/USD' },
-    { symbol: 'CAKEUSDT', name: 'CAKE/USD' },
-    { symbol: 'AVAXUSDT', name: 'AVAX/USD' },
-    { symbol: 'TRXUSDT', name: 'TRX/USD' }
-  ];
+    'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT',
+    'TONUSDT','ADAUSDT','DOGEUSDT','XLMUSDT','LINKUSDT',
+    'LTCUSDT','SUIUSDT','POLUSDT','NEARUSDT','UNIUSDT',
+    'TAOUSDT','SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT',
+    'AVAXUSDT','TRXUSDT'
+  ].map(s => ({ symbol: s, name: s.replace('USDT', '/USD') }));
 
   const timeframes = ['1h', '4h'];
   const freshSignals = [];
+  const signalsByPair = {};  // for confluence
 
   for (const pair of pairs) {
     for (const tf of timeframes) {
@@ -69,51 +53,55 @@ async function generateAll() {
           rsi: indicators.rsi,
           macd: indicators.macdHistogram,
           volumeSpike: indicators.volumeSpike,
-          aiTrend: consensus.trend,
           adx: consensus.adx,
-          trendStrength: consensus.trend,
-          pattern: consensus.pattern || '',
-          timestamp: consensus.timestamp
+          vwap: consensus.vwap,
+          divergence: consensus.divergence,
+          pattern: consensus.pattern,
+          timestamp: consensus.timestamp,
+          status: 'open',        // for win-rate tracker
+          outcome: null
         };
-        freshSignals.push(signal);
-        tradeHistory.add(signal);
+        if (!signalsByPair[pair.symbol]) signalsByPair[pair.symbol] = {};
+        signalsByPair[pair.symbol][tf] = signal;
       }
     }
   }
 
-  // Solana meme coins
+  // Multi‑timeframe confluence: require both 1h and 4h exist and have same direction
+  for (const symbol of Object.keys(signalsByPair)) {
+    const pairSignals = signalsByPair[symbol];
+    if (pairSignals['1h'] && pairSignals['4h'] &&
+        pairSignals['1h'].direction === pairSignals['4h'].direction) {
+      freshSignals.push(pairSignals['1h']);
+      freshSignals.push(pairSignals['4h']);   // keep both for history
+      tradeHistory.add(pairSignals['1h']);
+      tradeHistory.add(pairSignals['4h']);
+    }
+  }
+
+  // Solana meme coins (unchanged)
   let memeCoins = [];
   try {
     await new Promise(resolve => setTimeout(resolve, 3000));
     memeCoins = await solanaService.findNewSolanaMemeCoins();
-  } catch (err) {
-    console.log('Solana meme coins skipped:', err.message);
-  }
-
-  if (memeCoins.length > 0) {
-    memeCoins.forEach(coin => {
-      const signal = {
-        id: Date.now() + Math.random(),
-        type: 'meme_coin',
-        name: coin.name,
-        symbol: coin.symbol,
-        price: coin.price,
-        confidence: coin.probability,
-        probability: coin.probability,
-        volume24h: coin.volume24h,
-        priceChange24h: coin.priceChange24h,
-        timestamp: new Date().toISOString()
-      };
-      freshSignals.push(signal);
+  } catch (err) { console.log('Solana meme coins skipped:', err.message); }
+  memeCoins.forEach(coin => {
+    freshSignals.push({
+      id: Date.now() + Math.random(),
+      type: 'meme_coin',
+      name: coin.name,
+      symbol: coin.symbol,
+      price: coin.price,
+      confidence: coin.probability,
+      probability: coin.probability,
+      timestamp: new Date().toISOString()
     });
-  }
+  });
 
   latestSignals = freshSignals;
   return freshSignals;
 }
 
-function getLatestSignals() {
-  return latestSignals;
-}
+function getLatestSignals() { return latestSignals; }
 
 module.exports = { generateAll, getLatestSignals };
