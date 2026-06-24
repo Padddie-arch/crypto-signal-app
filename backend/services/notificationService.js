@@ -1,17 +1,29 @@
-﻿const axios = require('axios');
+const axios = require('axios');
+
 async function sendPushForSignals(signals) {
   if (!process.env.ONESIGNAL_APP_ID || !process.env.ONESIGNAL_REST_API_KEY) return;
-  const highConfSignals = signals.filter(s => s.confidence && s.confidence >= 80);
-  if (highConfSignals.length === 0) return;
-  const contents = { en: `${highConfSignals.length} high-confidence signals detected!` };
-  const headings = { en: 'ðŸ”” New Trading Signals' };
+
+  // Only notify if at least one signal has 7+ out of 10 strategies aligned
+  const highAlignSignals = signals.filter(s => {
+    const aligned = s.aligned || 0;
+    const total = s.totalStrategies || 10;
+    return aligned >= 7 && total === 10;
+  });
+
+  if (highAlignSignals.length === 0) return;
+
+  // Build a message listing the top signals
+  const top = highAlignSignals.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/10)`).join(', ');
+  const contents = { en: `🔥 ${highAlignSignals.length} strong signal(s): ${top}` };
+  const headings = { en: 'High‑Confidence Signal Alert' };
+
   try {
     await axios.post('https://onesignal.com/api/v1/notifications', {
       app_id: process.env.ONESIGNAL_APP_ID,
       included_segments: ['All'],
       contents,
       headings,
-      data: { type: 'signals' }
+      data: { type: 'strong_signals' }
     }, {
       headers: { Authorization: `Basic ${process.env.ONESIGNAL_REST_API_KEY}` }
     });
@@ -19,4 +31,5 @@ async function sendPushForSignals(signals) {
     console.error('Push notification error:', err.response?.data || err.message);
   }
 }
+
 module.exports = { sendPushForSignals };
