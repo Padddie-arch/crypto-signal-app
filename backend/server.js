@@ -375,7 +375,9 @@ async function generateAllSignals() {
         signal.timeframe = tf;
         signal.status = 'open';
         signal.outcome = null;
-        signal.trailingStop = null;
+        trailingStop: direction === 'BUY'
+  ? currentPrice - currentATR * 1.0
+  : currentPrice + currentATR * 1.0,
         freshSignals.push(signal);
       }
     }
