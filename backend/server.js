@@ -30,10 +30,9 @@ const CRYPTO_PAIRS = [
 // Metals & Forex pairs (Twelve Data only – no simulator)
 const OTHER_PAIRS = [
   // Metals (Twelve Data symbols use no slash)
+   // Metals (Twelve Data symbols use no slash)
   { symbol: 'XAU/USD', name: 'XAU/USD', tdSymbol: 'XAUUSD', type: 'metal' },
   { symbol: 'XAG/USD', name: 'XAG/USD', tdSymbol: 'XAGUSD', type: 'metal' },
-  { symbol: 'XPT/USD', name: 'XPT/USD', tdSymbol: 'XPTUSD', type: 'metal' },
-  { symbol: 'XPD/USD', name: 'XPD/USD', tdSymbol: 'XPDUSD', type: 'metal' },
   // Major Forex
   { symbol: 'EUR/USD', name: 'EUR/USD', tdSymbol: 'EUR/USD', type: 'forex' },
   { symbol: 'GBP/USD', name: 'GBP/USD', tdSymbol: 'GBP/USD', type: 'forex' },
