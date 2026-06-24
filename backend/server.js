@@ -16,37 +16,22 @@ const io = socketIo(server, { cors: { origin: "*" } });
 // ========== CONFIGURATION ==========
 const MEXC_TICKER_URL = 'https://api.mexc.com/api/v3/ticker/price';
 const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';
-const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY || '';   // ⬅️ add your key here
-const TWELVE_DATA_URL = 'https://api.twelvedata.com/time_series';
 
-// Crypto pairs (MEXC)
-const CRYPTO_PAIRS = [
+const PAIRS = [
   'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT',
   'ADAUSDT','DOGEUSDT','XLMUSDT','LINKUSDT','LTCUSDT',
   'SUIUSDT','POLUSDT','NEARUSDT','UNIUSDT','TAOUSDT',
   'SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT','AVAXUSDT','TRXUSDT'
-].map(symbol => ({ symbol, name: symbol.replace('USDT', '/USD'), type: 'crypto' }));
-
-// Metals & Forex pairs (Twelve Data only – no simulator)
-// Reduced to 3 essential pairs to stay within free tier limits
-const OTHER_PAIRS = [
-  // Metals (Twelve Data symbols use no slash)
-  { symbol: 'XAU/USD', name: 'XAU/USD', tdSymbol: 'XAUUSD', type: 'metal' },
-  { symbol: 'XAG/USD', name: 'XAG/USD', tdSymbol: 'XAGUSD', type: 'metal' },
-  // Forex
-  { symbol: 'EUR/USD', name: 'EUR/USD', tdSymbol: 'EUR/USD', type: 'forex' }
-];
-
-const ALL_PAIRS = [...CRYPTO_PAIRS, ...OTHER_PAIRS];
+].map(symbol => ({ symbol, name: symbol.replace('USDT', '/USD') }));
 
 const TIMEFRAMES = ['1h', '4h'];
 const INTERVAL_MAP = { '1h': '60m', '4h': '4h' };
 
-// ========== RATE LIMITERS ==========
+// ========== RATE LIMITER ==========
 let lastRequestTime = 0;
-const MIN_GAP = 200; // MEXC (200ms)
+const MIN_GAP = 200;
 
-async function rateLimitedGet(url, params) {
+async function mexcGet(url, params) {
   const now = Date.now();
   const wait = lastRequestTime + MIN_GAP - now;
   if (wait > 0) await new Promise(r => setTimeout(r, wait));
@@ -61,154 +46,63 @@ async function rateLimitedGet(url, params) {
   });
 }
 
-// Twelve Data rate limiter (800 req/day, safe with 15 seconds gap)
-let lastTDRequestTime = 0;
-const TD_MIN_GAP = 15000; // 15 seconds
-
-async function tdGet(url, params) {
-  const now = Date.now();
-  const wait = lastTDRequestTime + TD_MIN_GAP - now;
-  if (wait > 0) await new Promise(r => setTimeout(r, wait));
-  lastTDRequestTime = Date.now();
-  return axios.get(url, {
-    params,
-    timeout: 10000,
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      'Accept': 'application/json'
-    }
-  });
-}
-
 // ========== CACHES ==========
 const klineCache = {};
-const KLINE_CACHE_TTL = 5 * 60 * 1000;          // 5 minutes for crypto
-const TD_KLINE_CACHE_TTL = 15 * 60 * 1000;      // 15 minutes for Twelve Data
+const KLINE_CACHE_TTL = 5 * 60 * 1000;
 const priceCache = {};
-const PRICE_CACHE_TTL = 30 * 1000;               // 30 seconds for crypto prices
-const TD_PRICE_CACHE_TTL = 2 * 60 * 1000;        // 2 minutes for Twelve Data prices
+const PRICE_CACHE_TTL = 30 * 1000;
 
 // ========== LIVE PRICE ==========
-async function fetchLivePrice(pair) {
-  const cacheKey = `price_${pair.symbol}`;
+async function fetchLivePrice(symbol) {
+  const cacheKey = `price_${symbol}`;
   const now = Date.now();
   if (priceCache[cacheKey] && (now - priceCache[cacheKey].timestamp) < PRICE_CACHE_TTL) {
     return priceCache[cacheKey].price;
   }
-
-  if (pair.type === 'crypto') {
-    // MEXC ticker
-    try {
-      const res = await rateLimitedGet(MEXC_TICKER_URL, { symbol: pair.symbol });
-      const price = parseFloat(res.data?.price);
-      if (!price || isNaN(price) || price <= 0) throw new Error('Invalid price');
-      priceCache[cacheKey] = { price, timestamp: now };
-      return price;
-    } catch (err) {
-      console.error(`❌ Live price failed for ${pair.symbol}: ${err.message}`);
-      return null;
-    }
-  } else {
-    // Metals / Forex: Twelve Data only
-    if (!TWELVE_DATA_KEY) {
-      console.log(`Skipping ${pair.symbol} – no Twelve Data API key`);
-      return null;
-    }
-    const cacheKey = `tdprice_${pair.tdSymbol}`;
-    const now = Date.now();
-    if (priceCache[cacheKey] && (now - priceCache[cacheKey].timestamp) < TD_PRICE_CACHE_TTL) {
-      return priceCache[cacheKey].price;
-    }
-    try {
-      const res = await tdGet(TWELVE_DATA_URL, {
-        symbol: pair.tdSymbol,          // use tdSymbol
-        interval: '1min',
-        outputsize: 1,
-        apikey: TWELVE_DATA_KEY,
-        format: 'JSON'
-      });
-      const values = res.data?.values;
-      const price = values ? parseFloat(values[0].close) : null;
-      if (price && !isNaN(price) && price > 0) {
-        priceCache[cacheKey] = { price, timestamp: now };
-        return price;
-      }
-      throw new Error('Invalid price from Twelve Data');
-    } catch (err) {
-      console.error(`❌ Live price failed for ${pair.symbol}: ${err.message}`);
-      return null;
-    }
+  try {
+    const res = await mexcGet(MEXC_TICKER_URL, { symbol });
+    const price = parseFloat(res.data?.price);
+    if (!price || isNaN(price) || price <= 0) throw new Error('Invalid price');
+    priceCache[cacheKey] = { price, timestamp: now };
+    return price;
+  } catch (err) {
+    console.error(`❌ Live price failed for ${symbol}: ${err.message}`);
+    return null;
   }
 }
 
 // ========== CANDLES ==========
-async function fetchCandles(pair, interval, minCandles = 50) {
-  const cacheKey = `kline_${pair.symbol}_${interval}`;
+async function fetchCandles(symbol, interval, minCandles = 50) {
+  const cacheKey = `kline_${symbol}_${interval}`;
   const now = Date.now();
   if (klineCache[cacheKey] && (now - klineCache[cacheKey].timestamp) < KLINE_CACHE_TTL) {
     return klineCache[cacheKey].data;
   }
-
-  if (pair.type === 'crypto') {
-    // MEXC klines
-    try {
-      const res = await rateLimitedGet(MEXC_KLINE_URL, {
-        symbol: pair.symbol,
-        interval: INTERVAL_MAP[interval],
-        limit: Math.max(100, minCandles)
-      });
-      const klines = res.data;
-      if (!klines || klines.length < minCandles) {
-        console.error(`⚠️ Not enough MEXC candles for ${pair.symbol} ${interval}`);
-        return null;
-      }
-      const candles = klines.map(k => ({
-        timestamp: k[0],
-        open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]),
-        close: parseFloat(k[4]), volume: parseFloat(k[5])
-      }));
-      candles.reverse();
-      klineCache[cacheKey] = { data: candles, timestamp: now };
-      return candles;
-    } catch (err) {
-      console.error(`❌ MEXC kline failed for ${pair.symbol}: ${err.message}`);
+  try {
+    const res = await mexcGet(MEXC_KLINE_URL, {
+      symbol,
+      interval: INTERVAL_MAP[interval],
+      limit: Math.max(100, minCandles)
+    });
+    const klines = res.data;
+    if (!klines || klines.length < minCandles) {
+      console.error(`⚠️ Not enough candles for ${symbol} ${interval}`);
       return null;
     }
-  } else {
-    // Metals / Forex: Twelve Data only
-    if (!TWELVE_DATA_KEY) {
-      console.log(`Skipping ${pair.symbol} candles – no Twelve Data API key`);
-      return null;
-    }
-    const cacheKey = `tdkline_${pair.tdSymbol}_${interval}`;
-    const now = Date.now();
-    if (klineCache[cacheKey] && (now - klineCache[cacheKey].timestamp) < TD_KLINE_CACHE_TTL) {
-      return klineCache[cacheKey].data;
-    }
-    try {
-      const res = await tdGet(TWELVE_DATA_URL, {
-        symbol: pair.tdSymbol,          // use tdSymbol
-        interval: interval === '1h' ? '1h' : '4h',
-        outputsize: minCandles,
-        apikey: TWELVE_DATA_KEY,
-        format: 'JSON'
-      });
-      const values = res.data?.values;
-      if (values && values.length >= minCandles) {
-        const candles = values.reverse().map(c => ({
-          timestamp: c.datetime,
-          open: parseFloat(c.open), high: parseFloat(c.high),
-          low: parseFloat(c.low), close: parseFloat(c.close),
-          volume: parseFloat(c.volume || 0)
-        }));
-        klineCache[cacheKey] = { data: candles, timestamp: now };
-        return candles;
-      }
-      throw new Error('Not enough candles');
-    } catch (err) {
-      console.error(`❌ Twelve Data candles failed for ${pair.symbol}: ${err.message}`);
-      return null;
-    }
+    const candles = klines.map(k => ({
+      timestamp: k[0],
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+      volume: parseFloat(k[5])
+    }));
+    candles.reverse();
+    klineCache[cacheKey] = { data: candles, timestamp: now };
+    return candles;
+  } catch (err) {
+    console.error(`❌ Kline failed for ${symbol} ${interval}: ${err.message}`);
+    return null;
   }
 }
 
@@ -467,14 +361,11 @@ async function sendPushNotifications(signals) {
 // ========== MAIN GENERATION ==========
 async function generateAllSignals() {
   const freshSignals = [];
-  for (const pair of ALL_PAIRS) {
-    const livePrice = await fetchLivePrice(pair);
+  for (const pair of PAIRS) {
+    const livePrice = await fetchLivePrice(pair.symbol);
     if (!livePrice) continue;
     for (const tf of TIMEFRAMES) {
-      // For metals/forex, only use 1h to reduce Twelve Data calls
-      if (pair.type !== 'crypto' && tf !== '1h') continue;
-
-      const candles = await fetchCandles(pair, tf);
+      const candles = await fetchCandles(pair.symbol, tf);
       if (!candles || candles.length < 50) continue;
       const signal = generateSignal(pair, candles, tf, livePrice);
       if (signal) {
@@ -527,12 +418,9 @@ app.get('/api/stats', (req, res) => {
 });
 app.get('/api/prices', async (req, res) => {
   const prices = {};
-  for (const pair of ALL_PAIRS) {
-    const livePrice = await fetchLivePrice(pair);
-    if (livePrice !== null) {
-      const key = pair.symbol.replace('/', '');
-      prices[key] = livePrice;
-    }
+  for (const pair of PAIRS) {
+    const livePrice = await fetchLivePrice(pair.symbol);
+    if (livePrice !== null) prices[pair.symbol.replace('USDT', '')] = livePrice;
   }
   res.json(prices);
 });
