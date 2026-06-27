@@ -4,6 +4,8 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const axios = require('axios');
+const Parser = require('rss-parser');
+const rssParser = new Parser();
 
 const app = express();
 app.use(cors());
@@ -16,6 +18,12 @@ const io = socketIo(server, { cors: { origin: "*" } });
 // ========== CONFIGURATION ==========
 const MEXC_TICKER_URL = 'https://api.mexc.com/api/v3/ticker/price';
 const MEXC_KLINE_URL = 'https://api.mexc.com/api/v3/klines';
+
+// Free RSS feeds (no API key needed)
+const RSS_FEEDS = [
+  'https://cryptopanic.com/news/rss/',
+  'https://www.coindesk.com/arc/outboundfeeds/rss/'
+];
 
 const PAIRS = [
   'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT',
@@ -51,6 +59,8 @@ const klineCache = {};
 const KLINE_CACHE_TTL = 5 * 60 * 1000;
 const priceCache = {};
 const PRICE_CACHE_TTL = 30 * 1000;
+let newsCache = { headlines: [], timestamp: 0 };
+const NEWS_CACHE_TTL = 15 * 60 * 1000;   // refresh RSS every 15 minutes
 
 // ========== LIVE PRICE ==========
 async function fetchLivePrice(symbol) {
@@ -104,6 +114,77 @@ async function fetchCandles(symbol, interval, minCandles = 50) {
     console.error(`❌ Kline failed for ${symbol} ${interval}: ${err.message}`);
     return null;
   }
+}
+
+// ========== RSS NEWS FETCHER (free, no key) ==========
+const coinAliases = {
+  BTC: ['BTC', 'Bitcoin', 'XBT'],
+  ETH: ['ETH', 'Ethereum'],
+  SOL: ['SOL', 'Solana'],
+  BNB: ['BNB', 'Binance Coin'],
+  XRP: ['XRP', 'Ripple'],
+  ADA: ['ADA', 'Cardano'],
+  DOGE: ['DOGE', 'Dogecoin'],
+  XLM: ['XLM', 'Stellar'],
+  LINK: ['LINK', 'Chainlink'],
+  LTC: ['LTC', 'Litecoin'],
+  SUI: ['SUI'],
+  POL: ['POL', 'Polygon'],
+  NEAR: ['NEAR'],
+  UNI: ['UNI', 'Uniswap'],
+  TAO: ['TAO', 'Bittensor'],
+  SHIB: ['SHIB', 'Shiba Inu'],
+  APT: ['APT', 'Aptos'],
+  ZEC: ['ZEC', 'Zcash'],
+  CAKE: ['CAKE', 'PancakeSwap'],
+  AVAX: ['AVAX', 'Avalanche'],
+  TRX: ['TRX', 'TRON']
+};
+
+const positiveWords = ['surge', 'rally', 'bull', 'buy', 'gain', 'rise', 'high', 'green', 'up', 'record', 'jump'];
+const negativeWords = ['crash', 'drop', 'bear', 'sell', 'loss', 'fall', 'low', 'red', 'down', 'plunge', 'decline'];
+
+function getSentiment(headlines) {
+  let pos = 0, neg = 0;
+  headlines.forEach(h => {
+    const lower = h.toLowerCase();
+    pos += positiveWords.filter(w => lower.includes(w)).length;
+    neg += negativeWords.filter(w => lower.includes(w)).length;
+  });
+  if (pos > neg) return 1;
+  if (neg > pos) return -1;
+  return 0;
+}
+
+async function fetchAllNews() {
+  const now = Date.now();
+  if (newsCache.headlines.length && (now - newsCache.timestamp) < NEWS_CACHE_TTL) {
+    return newsCache.headlines;
+  }
+  let allHeadlines = [];
+  for (const feed of RSS_FEEDS) {
+    try {
+      const feedData = await rssParser.parseURL(feed);
+      const titles = feedData.items.map(i => i.title);
+      allHeadlines = allHeadlines.concat(titles);
+    } catch (err) {
+      console.error(`RSS feed ${feed} failed: ${err.message}`);
+    }
+  }
+  newsCache = { headlines: allHeadlines, timestamp: now };
+  return allHeadlines;
+}
+
+async function fetchNewsSentiment(coinSymbol) {
+  const base = coinSymbol.replace('USDT', '');
+  const aliases = coinAliases[base] || [base];
+  const allHeadlines = await fetchAllNews();
+  const relevant = allHeadlines.filter(h => aliases.some(a => h.toLowerCase().includes(a.toLowerCase())));
+  if (relevant.length === 0) return { sentiment: 0, headlines: [] };
+  return {
+    sentiment: getSentiment(relevant),
+    headlines: relevant.slice(0, 3)
+  };
 }
 
 // ========== TECHNICAL INDICATORS (all 11) ==========
@@ -188,7 +269,7 @@ function ichimoku(candles) {
 }
 
 function bollingerPercentB(closes, period = 20, stdDev = 2) {
-  if (closes.length < period) return { vote: 0 };
+  if (closes.length < period) return { vote: 0, bValue: 0.5 };
   const ma = closes.slice(-period).reduce((a, b) => a + b, 0) / period;
   const variance = closes.slice(-period).reduce((s, v) => s + (v - ma) ** 2, 0) / period;
   const std = Math.sqrt(variance);
@@ -196,7 +277,7 @@ function bollingerPercentB(closes, period = 20, stdDev = 2) {
   const b = (closes[closes.length - 1] - lower) / (upper - lower || 1e-10);
   let vote = 0;
   if (b < 0.2) vote = 1; else if (b > 0.8) vote = -1;
-  return { vote };
+  return { vote, bValue: b };
 }
 
 function aroon(candles, period = 14) {
@@ -259,10 +340,13 @@ function vwap(candles) {
 }
 
 // ========== SIGNAL GENERATION ==========
-function generateSignal(pair, candles, interval, livePrice) {
+async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const currentPrice = livePrice;
   if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) return null;
+
+  // Fetch news sentiment
+  const news = await fetchNewsSentiment(pair.symbol);
 
   const rsiVals = rsiArr(closes, 14);
   const lastRSI = rsiVals[rsiVals.length - 1];
@@ -288,7 +372,7 @@ function generateSignal(pair, candles, interval, livePrice) {
     return lastVol > sma * 1.5;
   })();
 
-  // 11 votes
+  // 11 technical votes
   let rsiVote = 0, macdVote = 0, emaVote = 0, adxVote = 0, volVote = 0, stochVote = 0,
       ichiVote = 0, bollVote = 0, aroonVote = 0, candleVote = 0, divVote = 0;
 
@@ -296,7 +380,7 @@ function generateSignal(pair, candles, interval, livePrice) {
   if (macdRes.hist > 0) macdVote = 1; else if (macdRes.hist < 0) macdVote = -1;
   const ema9 = ema(closes, 9), ema21 = ema(closes, 21);
   emaVote = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 1 : -1;
-  if (adxRes.adx > 25) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
+  if (adxRes.adx > 20) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
   if (volumeSpike) { volVote = currentPrice > closes[closes.length - 2] ? 1 : -1; }
   if (stoch < 20) stochVote = 1; else if (stoch > 80) stochVote = -1;
   ichiVote = ichi.vote || 0;
@@ -305,17 +389,21 @@ function generateSignal(pair, candles, interval, livePrice) {
   candleVote = candlePat.vote || 0;
   divVote = div.vote || 0;
 
-  const votes = [rsiVote, macdVote, emaVote, adxVote, volVote, stochVote, ichiVote, bollVote, aroonVote, candleVote, divVote];
+  // 12th vote: news sentiment
+  const newsVote = news.sentiment;   // -1, 0, or 1
+
+  const TOTAL_STRATEGIES = 12;
+  const votes = [rsiVote, macdVote, emaVote, adxVote, volVote, stochVote, ichiVote, bollVote, aroonVote, candleVote, divVote, newsVote];
   const buyVotes = votes.filter(v => v === 1).length;
   const sellVotes = votes.filter(v => v === -1).length;
   const totalActive = votes.filter(v => v !== 0).length;
   if (totalActive < 3) return null;
 
   const aligned = Math.max(buyVotes, sellVotes);
-  const confidence = Math.round((aligned / 11) * 100);
+  const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  if (adxRes.adx <= 25) return null;
+  if (adxRes.adx <= 20) return null;
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
@@ -324,11 +412,12 @@ function generateSignal(pair, candles, interval, livePrice) {
   const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
 
   return {
-    direction, confidence, aligned, totalActive, totalStrategies: 11,
+    direction, confidence, aligned, totalActive, totalStrategies: TOTAL_STRATEGIES,
     price: currentPrice, stopLoss, takeProfit, trailingStop,
     rsi: lastRSI, macd: macdRes.hist, volumeSpike,
     adx: adxRes.adx, vwap: vwapVal,
     divergence: div.divergence || '', pattern: candlePat.pattern || '',
+    newsHeadlines: news.headlines,
     timestamp: new Date().toISOString()
   };
 }
@@ -342,7 +431,7 @@ async function sendPushNotifications(signals) {
   const highAlign = signals.filter(s => s.aligned >= 8);
   if (highAlign.length === 0) return;
 
-  const top = highAlign.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/11)`).join(', ');
+  const top = highAlign.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/12)`).join(', ');
   try {
     await axios.post('https://onesignal.com/api/v1/notifications', {
       app_id: appId,
@@ -367,7 +456,7 @@ async function generateAllSignals() {
     for (const tf of TIMEFRAMES) {
       const candles = await fetchCandles(pair.symbol, tf);
       if (!candles || candles.length < 50) continue;
-      const signal = generateSignal(pair, candles, tf, livePrice);
+      const signal = await generateSignal(pair, candles, tf, livePrice);
       if (signal) {
         signal.id = Date.now() + Math.random();
         signal.pair = pair.name;
