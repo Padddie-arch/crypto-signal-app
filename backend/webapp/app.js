@@ -48,8 +48,7 @@ socket.on('new_signals', (data) => {
   memeCoins = meme;
   renderSignals();
   renderMemeCoins();
-  // Sound on 8/11+ signal
-  const strong = normal.filter(s => (s.aligned || 0) >= 8 && (s.totalStrategies || 11) >= 11);
+  const strong = normal.filter(s => (s.aligned || 0) >= 8 && (s.totalStrategies || 12) >= 12);
   if (strong.length > 0) playAlert();
   if (document.getElementById('history-section').style.display !== 'none') loadHistory();
   if (document.getElementById('stats-section').style.display !== 'none') loadStats();
@@ -65,7 +64,7 @@ function switchTab(tab) {
   if (tab==='stats') loadStats();
 }
 
-// Render signals with 6 decimals
+// Render signals with 6 decimals & news
 function renderSignals() {
   const list = document.getElementById('signalList');
   const sorted = signals.sort((a,b) => b.confidence - a.confidence);
@@ -76,18 +75,21 @@ function renderSignals() {
     const sl = (s.stopLoss || 0).toFixed(6);
     const tp = (s.takeProfit || 0).toFixed(6);
     const trail = s.trailingStop ? '$' + Number(s.trailingStop).toFixed(6) : 'N/A';
+    const newsLine = s.newsHeadlines && s.newsHeadlines.length > 0
+      ? '<div class="info">📰 News: ' + s.newsHeadlines[0].substring(0, 60) + '...</div>' : '';
     return '<div class="signal-card" onclick="openChart(\'' + s.symbol + '\')">' +
       '<div class="pair-row">' +
         '<span style="color:' + color + '; font-weight:bold;">' + s.pair + ' ' + s.direction + '</span>' +
         '<span class="timeframe">' + s.timeframe + '</span>' +
       '</div>' +
       '<div>Price: $' + price + '</div>' +
-      '<div class="confidence">Confidence: ' + s.confidence + '% (' + (s.aligned || 0) + '/' + (s.totalStrategies || 11) + ')</div>' +
+      '<div class="confidence">Confidence: ' + s.confidence + '% (' + (s.aligned || 0) + '/' + (s.totalStrategies || 12) + ')</div>' +
       (s.pattern ? '<div class="info">Pattern: ' + s.pattern + '</div>' : '') +
       (s.divergence ? '<div class="info">Divergence: ' + s.divergence + '</div>' : '') +
       '<div class="info">RSI: ' + (s.rsi ? s.rsi.toFixed(1) : 'N/A') + ' | MACD: ' + (s.macd ? Number(s.macd).toFixed(4) : 'N/A') + '</div>' +
       '<div class="info">SL: $' + sl + ' | TP: $' + tp + '</div>' +
       '<div class="info">Trailing Stop: ' + trail + '</div>' +
+      newsLine +
     '</div>';
   }).join('');
 }
@@ -111,6 +113,8 @@ async function loadHistory() {
       const price = (s.price || 0).toFixed(6);
       const sl = (s.stopLoss || 0).toFixed(6);
       const tp = (s.takeProfit || 0).toFixed(6);
+      const newsLine = s.newsHeadlines && s.newsHeadlines.length > 0
+        ? '<div class="info">📰 News: ' + s.newsHeadlines[0].substring(0, 60) + '...</div>' : '';
       return '<div class="history-card">' +
         '<div class="pair-row">' +
           '<span style="color:' + color + '; font-weight:bold;">' + s.pair + ' ' + s.direction + '</span>' +
@@ -120,6 +124,7 @@ async function loadHistory() {
         (s.pattern ? '<div class="info">Pattern: ' + s.pattern + '</div>' : '') +
         '<div class="info">SL: $' + sl + ' | TP: $' + tp + '</div>' +
         '<div class="date">' + new Date(s.timestamp).toLocaleString() + '</div>' +
+        newsLine +
       '</div>';
     }).join('');
   } catch(e) {}
@@ -135,7 +140,7 @@ async function loadStats() {
   } catch(e) {}
 }
 
-// Meme coins (already 6 decimals)
+// Meme coins
 function renderMemeCoins() {
   document.getElementById('memeList').innerHTML = memeCoins.map(c =>
     '<div class="meme-item">' + c.name + ' (' + c.symbol + ') - $' + c.price.toFixed(6) + ' | Prob: ' + c.probability + '%</div>'
