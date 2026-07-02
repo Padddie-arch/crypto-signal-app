@@ -124,20 +124,82 @@ async function loadHistory() {
         (s.pattern ? '<div class="info">Pattern: ' + s.pattern + '</div>' : '') +
         '<div class="info">SL: $' + sl + ' | TP: $' + tp + '</div>' +
         '<div class="date">' + new Date(s.timestamp).toLocaleString() + '</div>' +
+        (s.outcome ? '<div class="info">Outcome: ' + (s.outcome === 'win' ? '✅ Win' : '❌ Loss') + '</div>' : '') +
         newsLine +
       '</div>';
     }).join('');
   } catch(e) {}
 }
 
-// Load stats
+// Load stats (now with win/loss sub‑tabs)
 async function loadStats() {
+  // Fetch both stats and full history
   try {
-    const res = await fetch(SERVER_URL + '/api/stats');
-    const stats = await res.json();
+    const [statsRes, historyRes] = await Promise.all([
+      fetch(SERVER_URL + '/api/stats'),
+      fetch(SERVER_URL + '/api/history')
+    ]);
+    const stats = await statsRes.json();
+    const history = await historyRes.json();
+
+    // Build summary
+    const summaryHtml =
+      '<p>Total closed trades: ' + stats.total + '</p>' +
+      '<p>Wins: ' + stats.wins + '</p>' +
+      '<p>Win rate: ' + stats.winRate + '%</p>';
+
+    // Filter closed trades with outcome
+    const closed = history.filter(t => t.outcome);
+    const wins = closed.filter(t => t.outcome === 'win');
+    const losses = closed.filter(t => t.outcome === 'loss');
+
+    // Generate cards for wins and losses
+    const cardsHtml = (items, outcomeLabel) => {
+      if (items.length === 0) return '<div class="info">No trades yet.</div>';
+      return items.reverse().map(s => {
+        const isBuy = s.direction === 'BUY';
+        const color = isBuy ? '#00e676' : '#ff5252';
+        const price = (s.price || 0).toFixed(6);
+        const sl = (s.stopLoss || 0).toFixed(6);
+        const tp = (s.takeProfit || 0).toFixed(6);
+        return '<div class="history-card">' +
+          '<div class="pair-row">' +
+            '<span style="color:' + color + '; font-weight:bold;">' + s.pair + ' ' + s.direction + '</span>' +
+            '<span class="timeframe">' + s.timeframe + '</span>' +
+          '</div>' +
+          '<div>Price: $' + price + ' | Confidence: ' + s.confidence + '%</div>' +
+          '<div class="info">SL: $' + sl + ' | TP: $' + tp + '</div>' +
+          '<div class="date">' + new Date(s.timestamp).toLocaleString() + '</div>' +
+          '<div class="info">Outcome: ' + outcomeLabel + '</div>' +
+        '</div>';
+      }).join('');
+    };
+
+    const winsHtml = '<h3>✅ Wins (' + wins.length + ')</h3>' + cardsHtml(wins, '✅ Win');
+    const lossesHtml = '<h3>❌ Losses (' + losses.length + ')</h3>' + cardsHtml(losses, '❌ Loss');
+
     document.getElementById('statsContent').innerHTML =
-      '<p>Total closed trades: ' + stats.total + '</p><p>Wins: ' + stats.wins + '</p><p>Win rate: ' + stats.winRate + '%</p>';
+      summaryHtml +
+      '<div class="stats-subtabs">' +
+        '<button class="subtab active" onclick="switchSubTab(\'wins\')">Wins</button>' +
+        '<button class="subtab" onclick="switchSubTab(\'losses\')">Losses</button>' +
+      '</div>' +
+      '<div id="wins-section">' + winsHtml + '</div>' +
+      '<div id="losses-section" style="display:none;">' + lossesHtml + '</div>';
+
+    // Attach sub‑tab handlers
+    window._winsHtml = winsHtml;
+    window._lossesHtml = lossesHtml;
+
   } catch(e) {}
+}
+
+// Sub‑tab switching inside Stats
+function switchSubTab(name) {
+  document.querySelectorAll('.subtab').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.subtab:nth-${name === 'wins' ? '1' : '2'}`).classList.add('active');
+  document.getElementById('wins-section').style.display = name === 'wins' ? 'block' : 'none';
+  document.getElementById('losses-section').style.display = name === 'losses' ? 'block' : 'none';
 }
 
 // Meme coins
