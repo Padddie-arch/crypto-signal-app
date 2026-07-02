@@ -32,12 +32,13 @@ const PAIRS = [
   'SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT','AVAXUSDT','TRXUSDT'
 ].map(symbol => ({ symbol, name: symbol.replace('USDT', '/USD') }));
 
-const TIMEFRAMES = ['1h', '4h'];
-const INTERVAL_MAP = { '1h': '60m', '4h': '4h' };
+// Now includes short timeframes
+const TIMEFRAMES = ['1h', '4h', '5m', '15m'];
+const INTERVAL_MAP = { '1h': '60m', '4h': '4h', '5m': '5m', '15m': '15m' };
 
 // ========== RATE LIMITER ==========
 let lastRequestTime = 0;
-const MIN_GAP = 200;
+const MIN_GAP = 400;   // increased to 400ms to handle more API calls
 
 async function mexcGet(url, params) {
   const now = Date.now();
@@ -56,7 +57,7 @@ async function mexcGet(url, params) {
 
 // ========== CACHES ==========
 const klineCache = {};
-const KLINE_CACHE_TTL = 5 * 60 * 1000;
+const KLINE_CACHE_TTL = 10 * 60 * 1000;   // increased to 10 min for fewer API calls
 const priceCache = {};
 const PRICE_CACHE_TTL = 30 * 1000;
 let newsCache = { headlines: [], timestamp: 0 };
@@ -339,7 +340,7 @@ function vwap(candles) {
   return sumVol > 0 ? sumTPV / sumVol : candles[candles.length - 1].close;
 }
 
-// ========== SIGNAL GENERATION ==========
+// ========== SIGNAL GENERATION (now timeframe‑adaptive) ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const currentPrice = livePrice;
@@ -347,6 +348,17 @@ async function generateSignal(pair, candles, interval, livePrice) {
 
   // Fetch news sentiment
   const news = await fetchNewsSentiment(pair.symbol);
+
+  // Timeframe‑dependent parameters
+  const isShortTF = (interval === '5m' || interval === '15m');
+  const rsiOversold = isShortTF ? 25 : 30;
+  const rsiOverbought = isShortTF ? 75 : 70;
+  const stochOversold = isShortTF ? 15 : 20;
+  const stochOverbought = isShortTF ? 85 : 80;
+  const bollOversold = isShortTF ? 0.15 : 0.2;
+  const bollOverbought = isShortTF ? 0.85 : 0.8;
+  const adxThreshold = isShortTF ? 15 : 20;
+  const minActiveStrats = isShortTF ? 2 : 3;  // fewer needed for short TFs
 
   const rsiVals = rsiArr(closes, 14);
   const lastRSI = rsiVals[rsiVals.length - 1];
@@ -372,38 +384,41 @@ async function generateSignal(pair, candles, interval, livePrice) {
     return lastVol > sma * 1.5;
   })();
 
-  // 11 technical votes
+  // 11 technical votes (now using dynamic thresholds)
   let rsiVote = 0, macdVote = 0, emaVote = 0, adxVote = 0, volVote = 0, stochVote = 0,
       ichiVote = 0, bollVote = 0, aroonVote = 0, candleVote = 0, divVote = 0;
 
-  if (lastRSI < 30) rsiVote = 1; else if (lastRSI > 70) rsiVote = -1;
+  if (lastRSI < rsiOversold) rsiVote = 1; else if (lastRSI > rsiOverbought) rsiVote = -1;
   if (macdRes.hist > 0) macdVote = 1; else if (macdRes.hist < 0) macdVote = -1;
   const ema9 = ema(closes, 9), ema21 = ema(closes, 21);
   emaVote = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 1 : -1;
-  if (adxRes.adx > 20) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
+  if (adxRes.adx > adxThreshold) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
   if (volumeSpike) { volVote = currentPrice > closes[closes.length - 2] ? 1 : -1; }
-  if (stoch < 20) stochVote = 1; else if (stoch > 80) stochVote = -1;
+  if (stoch < stochOversold) stochVote = 1; else if (stoch > stochOverbought) stochVote = -1;
   ichiVote = ichi.vote || 0;
-  bollVote = boll.vote || 0;
+  if (boll.bValue < bollOversold) bollVote = 1; else if (boll.bValue > bollOverbought) bollVote = -1;
   aroonVote = aroonRes.vote || 0;
   candleVote = candlePat.vote || 0;
   divVote = div.vote || 0;
 
   // 12th vote: news sentiment
-  const newsVote = news.sentiment;   // -1, 0, or 1
+  const newsVote = news.sentiment;
 
   const TOTAL_STRATEGIES = 12;
   const votes = [rsiVote, macdVote, emaVote, adxVote, volVote, stochVote, ichiVote, bollVote, aroonVote, candleVote, divVote, newsVote];
   const buyVotes = votes.filter(v => v === 1).length;
   const sellVotes = votes.filter(v => v === -1).length;
   const totalActive = votes.filter(v => v !== 0).length;
-  if (totalActive < 3) return null;
+  if (totalActive < minActiveStrats) return null;
 
   const aligned = Math.max(buyVotes, sellVotes);
   const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  if (adxRes.adx <= 20) return null;
+  // ADX filter (dynamic threshold)
+  if (adxRes.adx <= adxThreshold) return null;
+
+  // VWAP filter (unchanged, works for all TFs)
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
@@ -420,6 +435,41 @@ async function generateSignal(pair, candles, interval, livePrice) {
     newsHeadlines: news.headlines,
     timestamp: new Date().toISOString()
   };
+}
+
+// ========== TRADE OUTCOME TRACKER ==========
+async function updateTradeOutcomes() {
+  const now = Date.now();
+  for (const signal of signalHistory) {
+    if (signal.status !== 'open' || signal.type === 'meme_coin') continue;
+    // Only check after at least one candle passed
+    const signalTime = new Date(signal.timestamp).getTime();
+    const timeframeMs = (signal.timeframe === '1h') ? 3600000 : 
+                        (signal.timeframe === '4h') ? 14400000 :
+                        (signal.timeframe === '15m') ? 900000 : 300000; // 5m = 300000
+    if (now - signalTime < timeframeMs) continue;
+
+    const livePrice = await fetchLivePrice(signal.symbol);
+    if (!livePrice) continue;
+
+    if (signal.direction === 'BUY') {
+      if (livePrice <= signal.stopLoss) {
+        signal.status = 'closed';
+        signal.outcome = 'loss';
+      } else if (livePrice >= signal.takeProfit) {
+        signal.status = 'closed';
+        signal.outcome = 'win';
+      }
+    } else { // SELL
+      if (livePrice >= signal.stopLoss) {
+        signal.status = 'closed';
+        signal.outcome = 'loss';
+      } else if (livePrice <= signal.takeProfit) {
+        signal.status = 'closed';
+        signal.outcome = 'win';
+      }
+    }
+  }
 }
 
 // ========== PUSH NOTIFICATIONS ==========
@@ -477,6 +527,8 @@ let signalHistory = [];
 const MAX_HISTORY = 500;
 
 async function tick() {
+  console.log('Updating trade outcomes...');
+  await updateTradeOutcomes();   // track wins/losses first
   console.log('Generating signals with live prices...');
   try {
     const newSignals = await generateAllSignals();
@@ -495,7 +547,7 @@ async function tick() {
 }
 
 setTimeout(tick, 10000);
-setInterval(tick, 5 * 60 * 1000);
+setInterval(tick, 10 * 60 * 1000);   // run every 10 minutes (reduced from 5 min)
 
 // ========== ROUTES ==========
 app.get('/api/signals', (req, res) => res.json(latestSignals));
