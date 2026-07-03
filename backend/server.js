@@ -425,10 +425,12 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
   const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3 : currentPrice - currentATR * 3;
   const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
+  const dcaPrice = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;   // ✅ DCA added
 
   return {
     direction, confidence, aligned, totalActive, totalStrategies: TOTAL_STRATEGIES,
     price: currentPrice, stopLoss, takeProfit, trailingStop,
+    dcaPrice,   // ✅ DCA included in returned object
     rsi: lastRSI, macd: macdRes.hist, volumeSpike,
     adx: adxRes.adx, vwap: vwapVal,
     divergence: div.divergence || '', pattern: candlePat.pattern || '',
