@@ -5,12 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Crypto Signals</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
+  <!-- OneSignal -->
   <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
   <script>
     window.OneSignal = window.OneSignal || [];
     OneSignal.push(function() {
-      OneSignal.init({ appId: "YOUR_APP_ID", notifyButton: { enable: false } });
+      OneSignal.init({
+        appId: "YOUR_ONESIGNAL_APP_ID",
+        notifyButton: { enable: false },
+        allowLocalhostAsSecureOrigin: true
+      });
     });
   </script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
@@ -18,8 +23,14 @@
 </head>
 <body>
   <div id="app">
+    <!-- Header with logo placeholder -->
     <header>
-      <h1>🔥 Crypto Signals</h1>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <img src="logo.png" alt="Logo" style="height:36px; width:36px; border-radius:6px;" 
+             onerror="this.style.display='none';document.getElementById('logoText').style.display='block';">
+        <span id="logoText" style="display:none; font-weight:bold; font-size:20px;">🚀 Crypto Signals</span>
+      </div>
+      <h1 style="margin:0;">🔥 Crypto Signals</h1>
       <div style="display: flex; align-items: center; gap: 10px;">
         <button id="themeToggle">🌓</button>
         <span>Auto Trade</span>
@@ -35,19 +46,44 @@
       <marquee id="tickerContent">Loading prices...</marquee>
     </div>
 
+    <!-- Tab Navigation -->
     <div class="tabs">
       <button id="tab-signals" class="tab active" onclick="switchTab('signals')">📊 Signals</button>
       <button id="tab-history" class="tab" onclick="switchTab('history')">📋 History</button>
       <button id="tab-stats" class="tab" onclick="switchTab('stats')">📈 Stats</button>
     </div>
 
-    <section id="signals-section"><h2>High Confidence Signals</h2><div id="signalList"></div></section>
-    <section id="history-section" style="display: none;"><h2>📅 Past Signals</h2><div id="historyList"></div></section>
-    <section id="stats-section" style="display: none;"><h2>📈 Performance Stats</h2><div id="statsContent">Loading...</div></section>
+    <!-- Signals Section -->
+    <section id="signals-section">
+      <h2>High Confidence Signals</h2>
+      <div id="signalList"></div>
+    </section>
 
-    <section id="meme-coins"><h2>🐶 New Solana Meme Coins</h2><div id="memeList"></div></section>
+    <!-- History Section (hidden by default) -->
+    <section id="history-section" style="display: none;">
+      <h2>📅 Past Signals</h2>
+      <div id="historyList"></div>
+    </section>
 
-    <div id="chartModal" class="modal"><div class="modal-content"><span class="close">&times;</span><canvas id="priceChart"></canvas></div></div>
+    <!-- Stats Section (hidden by default) -->
+    <section id="stats-section" style="display: none;">
+      <h2>📈 Performance Stats</h2>
+      <div id="statsContent">Loading...</div>
+    </section>
+
+    <!-- Meme Coins Section (always visible) -->
+    <section id="meme-coins">
+      <h2>🐶 New Solana Meme Coins</h2>
+      <div id="memeList"></div>
+    </section>
+
+    <!-- Chart Modal -->
+    <div id="chartModal" class="modal">
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <canvas id="priceChart"></canvas>
+      </div>
+    </div>
 
     <button id="scrollToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆️</button>
   </div>
