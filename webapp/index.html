@@ -4,14 +4,32 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Crypto Signals</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css?v=4">
+  <!-- OneSignal -->
+  <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+  <script>
+    window.OneSignal = window.OneSignal || [];
+    OneSignal.push(function() {
+      OneSignal.init({
+        appId: "YOUR_ONESIGNAL_APP_ID",   // ⬅️ replace with your real OneSignal App ID
+        notifyButton: { enable: false },
+        allowLocalhostAsSecureOrigin: true
+      });
+    });
+  </script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div id="app">
+    <!-- Header with logo image (you can replace the src with your own URL) -->
     <header>
-      <h1>🔥 Crypto Signals</h1>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <img src="https://cdn.jsdelivr.net/npm/@pwabuilder/pwafire@latest/assets/icon-192.png"
+             alt="Logo" style="height:36px; width:36px; border-radius:6px;">
+        <h1 style="margin:0;">🔥 Crypto Signals</h1>
+      </div>
       <div class="auto-trade">
         <span>Auto Trade</span>
         <label class="switch">
@@ -21,24 +39,53 @@
       </div>
     </header>
 
-    <section id="signals">
+    <!-- Live price ticker -->
+    <div id="ticker">
+      <marquee id="tickerContent">Loading prices...</marquee>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="tabs">
+      <button id="tab-signals" class="tab active" onclick="switchTab('signals')">📊 Signals</button>
+      <button id="tab-history" class="tab" onclick="switchTab('history')">📋 History</button>
+      <button id="tab-stats" class="tab" onclick="switchTab('stats')">📈 Stats</button>
+    </div>
+
+    <!-- Signals Section -->
+    <section id="signals-section">
       <h2>High Confidence Signals</h2>
       <div id="signalList"></div>
     </section>
 
+    <!-- History Section (hidden by default) -->
+    <section id="history-section" style="display: none;">
+      <h2>📅 Past Signals</h2>
+      <div id="historyList"></div>
+    </section>
+
+    <!-- Stats Section (hidden by default) -->
+    <section id="stats-section" style="display: none;">
+      <h2>📈 Performance Stats</h2>
+      <div id="statsContent">Loading...</div>
+    </section>
+
+    <!-- Meme Coins Section -->
     <section id="meme-coins">
       <h2>🐶 New Solana Meme Coins</h2>
       <div id="memeList"></div>
     </section>
 
+    <!-- Chart Modal -->
     <div id="chartModal" class="modal">
       <div class="modal-content">
         <span class="close">&times;</span>
         <canvas id="priceChart"></canvas>
       </div>
     </div>
-  </div>
 
+    <button id="scrollToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆️</button>
+  </div>
+  <audio id="alertSound" src="https://cdn.jsdelivr.net/npm/@pwabuilder/pwafire@latest/assets/notification.mp3" preload="auto"></audio>
   <script src="app.js"></script>
 </body>
 </html>
