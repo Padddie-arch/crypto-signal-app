@@ -1,7 +1,8 @@
-const SERVER_URL = 'https://crypto-signal-app-cvxw.onrender.com';
+const SERVER_URL = 'https://crypto-signal-app-cvxw.onrender.com';  // ⬅️ Use your real Render URL
 let signals = [], memeCoins = [], chartInstance = null;
 let theme = localStorage.getItem('theme') || 'dark';
 
+// Theme toggle
 function toggleTheme() {
   theme = theme === 'dark' ? 'light' : 'dark';
   document.body.className = theme;
@@ -10,10 +11,12 @@ function toggleTheme() {
 document.body.className = theme;
 document.getElementById('themeToggle')?.addEventListener('click', toggleTheme);
 
+// Scroll to top button
 window.addEventListener('scroll', () => {
   document.getElementById('scrollToTop').style.display = window.scrollY > 200 ? 'block' : 'none';
 });
 
+// Ticker update
 async function updateTicker() {
   try {
     const res = await fetch(SERVER_URL + '/api/prices');
@@ -31,10 +34,12 @@ async function updateTicker() {
 setInterval(updateTicker, 60000);
 updateTicker();
 
+// Sound alert function
 function playAlert() {
   document.getElementById('alertSound')?.play().catch(() => {});
 }
 
+// Socket connection
 const socket = io(SERVER_URL);
 socket.on('new_signals', (data) => {
   const normal = data.filter(s => !s.type);
@@ -49,6 +54,7 @@ socket.on('new_signals', (data) => {
   if (document.getElementById('stats-section').style.display !== 'none') loadStats();
 });
 
+// Tab switching
 function switchTab(tab) {
   ['signals','history','stats'].forEach(t => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t===tab);
@@ -58,6 +64,7 @@ function switchTab(tab) {
   if (tab==='stats') loadStats();
 }
 
+// Render signals with advisory label
 function renderSignals() {
   const list = document.getElementById('signalList');
   const sorted = signals.sort((a,b) => b.confidence - a.confidence);
@@ -71,13 +78,27 @@ function renderSignals() {
     const dca = s.dcaPrice ? `<div class="info">DCA Level: $${Number(s.dcaPrice).toFixed(6)}</div>` : '';
     const newsLine = s.newsHeadlines && s.newsHeadlines.length > 0
       ? '<div class="info">📰 News: ' + s.newsHeadlines[0].substring(0, 60) + '...</div>' : '';
+
+    // Advisory label based on alignment
+    const aligned = s.aligned || 0;
+    let advisory = '';
+    if (aligned >= 8) {
+      advisory = '<div style="background:#00e67633; color:#00e676; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;">🔥 Strong Signal – High Confidence</div>';
+    } else if (aligned >= 6) {
+      advisory = '<div style="background:#ffaa0033; color:#ffaa00; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;">📊 Moderate Signal – Consider Entry</div>';
+    } else if (aligned >= 4) {
+      advisory = '<div style="background:#ff525233; color:#ff5252; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;">⚠️ Weak Signal – Caution</div>';
+    } else {
+      advisory = '<div style="background:#88888833; color:#888; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;">❌ Not Recommended</div>';
+    }
+
     return `<div class="signal-card" onclick="openChart('${s.symbol}')">
       <div class="pair-row">
         <span style="color:${color}; font-weight:bold;">${s.pair} ${s.direction}</span>
         <span class="timeframe">${s.timeframe}</span>
       </div>
       <div>Price: $${price}</div>
-      <div class="confidence">Confidence: ${s.confidence}% (${s.aligned || 0}/${s.totalStrategies || 12})</div>
+      <div class="confidence">Confidence: ${s.confidence}% (${aligned}/${s.totalStrategies || 12})</div>
       ${s.pattern ? '<div class="info">Pattern: ' + s.pattern + '</div>' : ''}
       ${s.divergence ? '<div class="info">Divergence: ' + s.divergence + '</div>' : ''}
       <div class="info">RSI: ${s.rsi ? s.rsi.toFixed(1) : 'N/A'} | MACD: ${s.macd ? Number(s.macd).toFixed(4) : 'N/A'}</div>
@@ -85,10 +106,12 @@ function renderSignals() {
       <div class="info">Trailing Stop: ${trail}</div>
       ${dca}
       ${newsLine}
+      ${advisory}
     </div>`;
   }).join('');
 }
 
+// Load history (unchanged, but including outcome)
 async function loadHistory() {
   try {
     const res = await fetch(SERVER_URL + '/api/history');
@@ -122,6 +145,7 @@ async function loadHistory() {
   } catch(e) {}
 }
 
+// Load stats (with Win/Loss sub‑tabs)
 async function loadStats() {
   try {
     const [statsRes, historyRes] = await Promise.all([
@@ -188,12 +212,14 @@ async function loadStats() {
   } catch(e) {}
 }
 
+// Meme coins
 function renderMemeCoins() {
   document.getElementById('memeList').innerHTML = memeCoins.map(c =>
     `<div class="meme-item">${c.name} (${c.symbol}) - $${c.price.toFixed(6)} | Prob: ${c.probability}%</div>`
   ).join('');
 }
 
+// Chart (unchanged)
 async function openChart(symbol) {
   document.getElementById('chartModal').style.display = 'block';
   try {
@@ -218,6 +244,7 @@ document.querySelector('.close')?.addEventListener('click', () => {
   document.getElementById('chartModal').style.display = 'none';
 });
 
+// Auto trade toggle
 document.getElementById('autoTradeToggle')?.addEventListener('change', async (e) => {
   await fetch(SERVER_URL + '/api/autotrade', {
     method: 'POST',
@@ -226,6 +253,7 @@ document.getElementById('autoTradeToggle')?.addEventListener('change', async (e)
   });
 });
 
+// Initial fetch
 fetch(SERVER_URL + '/api/signals')
   .then(r => r.json())
   .then(data => {
