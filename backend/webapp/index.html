@@ -12,7 +12,7 @@
     window.OneSignal = window.OneSignal || [];
     OneSignal.push(function() {
       OneSignal.init({
-        appId: "YOUR_ONESIGNAL_APP_ID",
+        appId: "YOUR_ONESIGNAL_APP_ID",   // ⬅️ replace with your real OneSignal App ID
         notifyButton: { enable: false },
         allowLocalhostAsSecureOrigin: true
       });
@@ -23,16 +23,10 @@
 </head>
 <body>
   <div id="app">
-    <!-- Header with logo placeholder -->
+    <!-- Header – plain text logo (original look) -->
     <header>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <img src="logo.png" alt="Logo" style="height:36px; width:36px; border-radius:6px;" 
-             onerror="this.style.display='none';document.getElementById('logoText').style.display='block';">
-        <span id="logoText" style="display:none; font-weight:bold; font-size:20px;">🚀 Crypto Signals</span>
-      </div>
-      <h1 style="margin:0;">🔥 Crypto Signals</h1>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <button id="themeToggle">🌓</button>
+      <img src="https://your-image-url.png" alt="Logo" style="height:36px; border-radius:6px;">
+      <div class="auto-trade">
         <span>Auto Trade</span>
         <label class="switch">
           <input type="checkbox" id="autoTradeToggle">
@@ -71,7 +65,7 @@
       <div id="statsContent">Loading...</div>
     </section>
 
-    <!-- Meme Coins Section (always visible) -->
+    <!-- Meme Coins Section -->
     <section id="meme-coins">
       <h2>🐶 New Solana Meme Coins</h2>
       <div id="memeList"></div>
