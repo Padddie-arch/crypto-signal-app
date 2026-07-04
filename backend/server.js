@@ -342,7 +342,7 @@ function vwap(candles) {
   return sumVol > 0 ? sumTPV / sumVol : candles[candles.length - 1].close;
 }
 
-// ========== RELAXED‑SHORT SIGNAL GENERATION ==========
+// ========== FIXED SIGNAL GENERATION ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
@@ -353,15 +353,14 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const currentATR = atr(candles, 14);
   if (currentATR / currentPrice < 0.005) return null;
 
-  // Volume filter: volume must be above average AND rising
+  // Volume filter: volume must be above average (NO rising requirement)
   const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
   const lastVolume = volumes[volumes.length - 1];
-  const prevVolume = volumes[volumes.length - 2];
-  if (lastVolume < avgVolume20 || lastVolume <= prevVolume) return null;
+  if (lastVolume < avgVolume20) return null;
 
-  // News sentiment (require ≥5 headlines and strength ≥3)
+  // News sentiment (RELAXED: require ≥3 headlines, strength ≥2)
   const news = await fetchNewsSentiment(pair.symbol);
-  const newsVote = (news.headlines.length >= 5 && news.strength >= 3) ? news.sentiment : 0;
+  const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
   // Timeframe‑dependent parameters
   const is4h = (interval === '4h');
@@ -373,9 +372,9 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const bollOversold = 0.15;
   const bollOverbought = 0.85;
 
-  // Relaxed ADX thresholds
-  const adxThreshold = is4h ? 25 : (isShortTF ? 15 : 20);
-  const minActiveStrats = is4h ? 4 : (isShortTF ? 2 : 3);
+  // ADX thresholds lowered slightly
+  const adxThreshold = is4h ? 20 : (isShortTF ? 15 : 20);
+  const minActiveStrats = is4h ? 3 : (isShortTF ? 2 : 3);
 
   // Indicators
   const rsiVals = rsiArr(closes, 14);
@@ -404,7 +403,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const ema9 = ema(closes, 9), ema21 = ema(closes, 21);
   emaVote = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 1 : -1;
   if (adxRes.adx > adxThreshold) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
-  const volumeSpike = lastVolume > avgVolume20 * 1.5 && lastVolume > prevVolume;
+  const volumeSpike = lastVolume > avgVolume20 * 1.5;
   if (volumeSpike && closes.length > 1) volVote = currentPrice > closes[closes.length - 2] ? 1 : -1;
   if (stoch < stochOversold) stochVote = 1; else if (stoch > stochOverbought) stochVote = -1;
   ichiVote = ichi.vote || 0;
@@ -424,7 +423,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // Trend alignment (50‑EMA slope)
+  // Trend alignment (50‑EMA slope) – KEPT
   const ema50 = ema(closes, 50);
   const recentEma50 = ema50.slice(-5);
   const slope50 = recentEma50[4] - recentEma50[0];
@@ -433,33 +432,25 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (direction === 'SELL' && trendDir === 'up') return null;
   if (trendDir === 'flat') return null;
 
-  // ADX must be rising ONLY for 4h
-  if (is4h && adxRes.adx <= adxRes.adxPrev) return null;
+  // REMOVED: ADX must be rising
+  // REMOVED: Price must be near 20‑EMA
 
-  // Price proximity filter ONLY for 4h
-  if (is4h) {
-    const ema20 = ema(closes, 20);
-    const distanceToEMA20 = Math.abs(currentPrice - ema20[ema20.length - 1]);
-    if (distanceToEMA20 > currentATR * 2.0) return null;
-  }
-
-  // VWAP filter (unchanged)
+  // VWAP filter – KEPT
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
-  // Cooldown: 3 candles for 4h, 1 candle for others
+  // Cooldown: 1 candle for all timeframes (reduced)
   const cooldownKey = `${pair.symbol}_${interval}`;
   const lastFire = cooldown[cooldownKey] || 0;
   const candleMs = interval === '1h' ? 3600000 : interval === '4h' ? 14400000 :
                    interval === '15m' ? 900000 : 300000;
-  const cooldownMs = is4h ? candleMs * 3 : candleMs * 1;
-  if (Date.now() - lastFire < cooldownMs) return null;
+  if (Date.now() - lastFire < candleMs) return null;
   cooldown[cooldownKey] = Date.now();
 
-  // Stop Loss & Take Profit
-  const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 2.0 : currentPrice + currentATR * 2.0;
-  const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 4.0 : currentPrice - currentATR * 4.0;
-  const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
+  // Stop Loss & Take Profit – slightly tighter
+  const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
+  const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3.0 : currentPrice - currentATR * 3.0;
+  const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
   const dcaPrice = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
 
   return {
