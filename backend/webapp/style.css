@@ -1,3 +1,4 @@
+/* ====== DARK THEME (default) ====== */
 :root {
   --bg: #060b1a;
   --card: #101a30;
@@ -10,8 +11,28 @@
   --muted: #5c6d84;
   --border: #1a2540;
   --glow: rgba(0, 212, 255, 0.08);
+  --switch-bg: #5c6d84;
+  --switch-knob: #fff;
 }
 
+/* ====== LIGHT THEME (overrides) ====== */
+body.light {
+  --bg: #f4f6fa;
+  --card: #ffffff;
+  --header-bg: #e8ecf2;
+  --text: #2a3b4c;
+  --accent: #0077cc;
+  --accent2: #e65100;
+  --success: #00c853;
+  --danger: #d32f2f;
+  --muted: #6e7f91;
+  --border: #ccd5e0;
+  --glow: rgba(0, 119, 204, 0.08);
+  --switch-bg: #b0bec5;
+  --switch-knob: #ffffff;
+}
+
+/* ====== BASE ====== */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -27,6 +48,7 @@ body {
   letter-spacing: 0.4px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
+  transition: background 0.3s, color 0.3s;
 }
 
 /* -------- HEADER -------- */
@@ -37,7 +59,7 @@ header {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 .header-left {
   display: flex;
@@ -45,7 +67,7 @@ header {
   gap: 14px;
 }
 
-/* ====== LOGO LOCK ====== */
+/* Logo locked */
 .logo-lock {
   width: 36px !important;
   height: 36px !important;
@@ -107,7 +129,7 @@ header h1 {
   position: absolute;
   cursor: pointer;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: var(--muted);
+  background: var(--switch-bg);
   border-radius: 26px;
   transition: 0.3s;
 }
@@ -118,7 +140,7 @@ header h1 {
   width: 20px;
   left: 3px;
   bottom: 3px;
-  background: #fff;
+  background: var(--switch-knob);
   border-radius: 50%;
   transition: 0.3s;
 }
@@ -277,7 +299,7 @@ section h2 {
   display: none;
   cursor: pointer;
   z-index: 1000;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.15);
   transition: transform 0.2s;
 }
 #scrollToTop:hover {
@@ -291,7 +313,7 @@ section h2 {
   z-index: 10;
   left: 0; top: 0;
   width: 100%; height: 100%;
-  background: rgba(0,0,0,0.85);
+  background: rgba(0,0,0,0.7);
 }
 .modal-content {
   background: var(--card);
