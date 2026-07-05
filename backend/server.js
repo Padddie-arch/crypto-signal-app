@@ -342,7 +342,7 @@ function vwap(candles) {
   return sumVol > 0 ? sumTPV / sumVol : candles[candles.length - 1].close;
 }
 
-// ========== FIXED SIGNAL GENERATION ==========
+// ========== BALANCED SIGNAL GENERATION ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
@@ -353,18 +353,20 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const currentATR = atr(candles, 14);
   if (currentATR / currentPrice < 0.005) return null;
 
-  // Volume filter: volume must be above average (NO rising requirement)
+  // Volume filter: volume must be above average
   const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
   const lastVolume = volumes[volumes.length - 1];
   if (lastVolume < avgVolume20) return null;
 
-  // News sentiment (RELAXED: require ≥3 headlines, strength ≥2)
+  // News sentiment
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
-  // Timeframe‑dependent parameters
+  // Timeframe‑dependent parameters – 1h now friendlier
   const is4h = (interval === '4h');
+  const is1h = (interval === '1h');
   const isShortTF = (interval === '5m' || interval === '15m');
+
   const rsiOversold = 25;
   const rsiOverbought = 75;
   const stochOversold = 15;
@@ -372,9 +374,8 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const bollOversold = 0.15;
   const bollOverbought = 0.85;
 
-  // ADX thresholds lowered slightly
-  const adxThreshold = is4h ? 20 : (isShortTF ? 15 : 20);
-  const minActiveStrats = is4h ? 3 : (isShortTF ? 2 : 3);
+  const adxThreshold = is4h ? 20 : is1h ? 18 : 15;
+  const minActiveStrats = is4h ? 3 : 2;
 
   // Indicators
   const rsiVals = rsiArr(closes, 14);
@@ -423,23 +424,20 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // Trend alignment (50‑EMA slope) – KEPT
+  // Trend alignment (50‑EMA slope) – flat allowed for non‑4h
   const ema50 = ema(closes, 50);
   const recentEma50 = ema50.slice(-5);
   const slope50 = recentEma50[4] - recentEma50[0];
   const trendDir = slope50 > 0 ? 'up' : slope50 < 0 ? 'down' : 'flat';
   if (direction === 'BUY' && trendDir === 'down') return null;
   if (direction === 'SELL' && trendDir === 'up') return null;
-  if (trendDir === 'flat') return null;
+  if (is4h && trendDir === 'flat') return null;
 
-  // REMOVED: ADX must be rising
-  // REMOVED: Price must be near 20‑EMA
-
-  // VWAP filter – KEPT
+  // VWAP filter
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
-  // Cooldown: 1 candle for all timeframes (reduced)
+  // Cooldown: 1 candle
   const cooldownKey = `${pair.symbol}_${interval}`;
   const lastFire = cooldown[cooldownKey] || 0;
   const candleMs = interval === '1h' ? 3600000 : interval === '4h' ? 14400000 :
@@ -447,7 +445,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (Date.now() - lastFire < candleMs) return null;
   cooldown[cooldownKey] = Date.now();
 
-  // Stop Loss & Take Profit – slightly tighter
+  // Stop Loss & Take Profit
   const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
   const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3.0 : currentPrice - currentATR * 3.0;
   const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
@@ -524,7 +522,7 @@ async function sendPushNotifications(signals) {
   }
 }
 
-// ========== MAIN GENERATION (with multi‑timeframe confluence) ==========
+// ========== MAIN GENERATION (with diagnostic log) ==========
 async function generateAllSignals() {
   const rawSignals = [];
   for (const pair of PAIRS) {
@@ -545,6 +543,10 @@ async function generateAllSignals() {
       }
     }
   }
+
+  // 🔍 Diagnostic log – shows every raw signal before confluence
+  console.log(`🔍 Raw signals (${rawSignals.length}):`);
+  rawSignals.forEach(s => console.log(`   ${s.symbol} ${s.timeframe} ${s.direction} align=${s.aligned}/${s.totalStrategies}`));
 
   // Build direction map for 1h/4h
   const dirMap = {};
