@@ -10,12 +10,12 @@
   "id": "https://crypto-signal-app-cvxw.onrender.com",
   "icons": [
     {
-      "src": "https://cdn.discordapp.com/attachments/1523116347314405561/1523116445804789890/IMG_1090.jpg?ex=6a4af03a&is=6a499eba&hm=099303952c6d7daa6893b956c0275b4e246b66d2372050da8bb26d03fdf7f755&",
+      "src": "logo.jpg",
       "sizes": "192x192",
       "type": "image/jpeg"
     },
     {
-      "src": "https://cdn.discordapp.com/attachments/1523116347314405561/1523116445804789890/IMG_1090.jpg?ex=6a4af03a&is=6a499eba&hm=099303952c6d7daa6893b956c0275b4e246b66d2372050da8bb26d03fdf7f755&",
+      "src": "logo.jpg",
       "sizes": "512x512",
       "type": "image/jpeg"
     }
