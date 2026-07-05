@@ -5,11 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Crypto Signals</title>
 
-  <!-- 🔴 FAVICON – replace with your direct image link 🔴 -->
+  <!-- FAVICON – your logo -->
   <link rel="icon" type="image/jpeg" href="https://i.ibb.co/5hqTmv23/LOGO.jpg">
 
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="style.css?v=4">
+
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+  <!-- Font Awesome icons (free) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="style.css?v=5">
 
   <!-- OneSignal -->
   <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
@@ -30,13 +35,12 @@
   <div id="app">
     <!-- Header -->
     <header>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <!-- 🔴 IN‑APP LOGO – replace with the same direct image link 🔴 -->
-        <img src="https://i.ibb.co/5hqTmv23/LOGO.jpg" 
-             alt="Logo" style="height:36px; width:36px; border-radius:6px;">
-        <h1 style="margin:0;">🔥 Crypto Signals</h1>
+      <div class="header-left">
+        <img src="https://i.ibb.co/5hqTmv23/LOGO.jpg" alt="Logo" class="logo-img">
+        <h1><i class="fas fa-bolt"></i> Crypto Signals</h1>
       </div>
-      <div class="auto-trade">
+      <div class="header-right">
+        <button id="themeToggle" title="Switch theme"><i class="fas fa-moon"></i></button>
         <span>Auto Trade</span>
         <label class="switch">
           <input type="checkbox" id="autoTradeToggle">
@@ -52,32 +56,32 @@
 
     <!-- Tab Navigation -->
     <div class="tabs">
-      <button id="tab-signals" class="tab active" onclick="switchTab('signals')">📊 Signals</button>
-      <button id="tab-history" class="tab" onclick="switchTab('history')">📋 History</button>
-      <button id="tab-stats" class="tab" onclick="switchTab('stats')">📈 Stats</button>
+      <button id="tab-signals" class="tab active" onclick="switchTab('signals')"><i class="fas fa-chart-bar"></i> Signals</button>
+      <button id="tab-history" class="tab" onclick="switchTab('history')"><i class="fas fa-history"></i> History</button>
+      <button id="tab-stats" class="tab" onclick="switchTab('stats')"><i class="fas fa-percent"></i> Stats</button>
     </div>
 
     <!-- Signals Section -->
     <section id="signals-section">
-      <h2>High Confidence Signals</h2>
+      <h2><i class="fas fa-bolt"></i> High Confidence Signals</h2>
       <div id="signalList"></div>
     </section>
 
     <!-- History Section -->
     <section id="history-section" style="display: none;">
-      <h2>📅 Past Signals</h2>
+      <h2><i class="fas fa-clock"></i> Past Signals</h2>
       <div id="historyList"></div>
     </section>
 
     <!-- Stats Section -->
     <section id="stats-section" style="display: none;">
-      <h2>📈 Performance Stats</h2>
+      <h2><i class="fas fa-chart-pie"></i> Performance Stats</h2>
       <div id="statsContent">Loading...</div>
     </section>
 
     <!-- Meme Coins Section -->
     <section id="meme-coins">
-      <h2>🐶 New Solana Meme Coins</h2>
+      <h2><i class="fas fa-coins"></i> New Solana Meme Coins</h2>
       <div id="memeList"></div>
     </section>
 
@@ -89,7 +93,7 @@
       </div>
     </div>
 
-    <button id="scrollToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆️</button>
+    <button id="scrollToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})"><i class="fas fa-arrow-up"></i></button>
   </div>
   <audio id="alertSound" src="https://cdn.jsdelivr.net/npm/@pwabuilder/pwafire@latest/assets/notification.mp3" preload="auto"></audio>
   <script src="app.js"></script>
