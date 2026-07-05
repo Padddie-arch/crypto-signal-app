@@ -1,12 +1,14 @@
-const SERVER_URL = 'https://crypto-signal-app-cvxw.onrender.com';   // use your real Render URL
+const SERVER_URL = 'https://crypto-signal-app-cvxw.onrender.com';   // your real Render URL
 let signals = [], memeCoins = [], chartInstance = null;
 let theme = localStorage.getItem('theme') || 'dark';
 
-// Theme toggle
+// Theme toggle (icon: moon/sun)
 function toggleTheme() {
   theme = theme === 'dark' ? 'light' : 'dark';
   document.body.className = theme;
   localStorage.setItem('theme', theme);
+  const icon = document.querySelector('#themeToggle i');
+  if (icon) icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
 }
 document.body.className = theme;
 document.getElementById('themeToggle')?.addEventListener('click', toggleTheme);
@@ -78,25 +80,25 @@ function generateAIInsight(signal) {
   const pattern = signal.pattern || '';
 
   let insight = '';
-  if (trend === 'up') insight += '📈 Trend is **upward**. ';
-  else if (trend === 'down') insight += '📉 Trend is **downward**. ';
-  else insight += '↔️ Market is **sideways**. ';
+  if (trend === 'up') insight += 'Trend is upward. ';
+  else if (trend === 'down') insight += 'Trend is downward. ';
+  else insight += 'Market is sideways. ';
 
-  if (priceChange5 > 2) insight += `Price surged **${priceChange5}%** in last 5 candles. `;
-  else if (priceChange5 < -2) insight += `Price dropped **${priceChange5}%** recently. `;
-  else insight += `Price moved **${priceChange5}%** over last 5 periods. `;
+  if (priceChange5 > 2) insight += `Price surged ${priceChange5}% in last 5 candles. `;
+  else if (priceChange5 < -2) insight += `Price dropped ${priceChange5}% recently. `;
+  else insight += `Price moved ${priceChange5}% over last 5 periods. `;
 
   if (rsi > 70) insight += `RSI is overbought (${rsi.toFixed(1)}). `;
   else if (rsi < 30) insight += `RSI is oversold (${rsi.toFixed(1)}). `;
   else insight += `RSI is neutral (${rsi.toFixed(1)}). `;
 
-  if (macd > 0) insight += 'MACD is **positive**. ';
-  else insight += 'MACD is **negative**. ';
+  if (macd > 0) insight += 'MACD is positive. ';
+  else insight += 'MACD is negative. ';
 
   insight += volumeSpike ? 'Volume spike detected. ' : 'Volume is normal. ';
 
-  if (pattern) insight += `Pattern: **${pattern}**. `;
-  if (divergence) insight += `Divergence: **${divergence}**. `;
+  if (pattern) insight += `Pattern: ${pattern}. `;
+  if (divergence) insight += `Divergence: ${divergence}. `;
 
   if (news.length > 0) {
     const newsText = news.join(' ').toLowerCase();
@@ -105,29 +107,29 @@ function generateAIInsight(signal) {
     let pos = 0, neg = 0;
     posWords.forEach(w => { if (newsText.includes(w)) pos++; });
     negWords.forEach(w => { if (newsText.includes(w)) neg++; });
-    if (pos > neg) insight += 'News sentiment is **positive**. ';
-    else if (neg > pos) insight += 'News sentiment is **negative**. ';
+    if (pos > neg) insight += 'News sentiment is positive. ';
+    else if (neg > pos) insight += 'News sentiment is negative. ';
     else insight += 'News is mixed. ';
   }
 
   const risk = Math.abs(price - sl);
   const reward = Math.abs(tp - price);
   const rr = (reward / risk).toFixed(2);
-  if (rr >= 2) insight += `Risk:Reward is **${rr}:1** (excellent). `;
-  else if (rr >= 1.5) insight += `Risk:Reward is **${rr}:1** (acceptable). `;
-  else insight += `Risk:Reward is **${rr}:1** (caution). `;
+  if (rr >= 2) insight += `Risk:Reward is ${rr}:1 (excellent). `;
+  else if (rr >= 1.5) insight += `Risk:Reward is ${rr}:1 (acceptable). `;
+  else insight += `Risk:Reward is ${rr}:1 (caution). `;
 
   let verdict = '';
   if (trend === 'up' && direction === 'long' && rsi < 70 && macd > 0 && priceChange5 > 0)
-    verdict = '🟢 Trade aligns with trend and momentum.';
+    verdict = 'Trade aligns with trend and momentum.';
   else if (trend === 'down' && direction === 'short' && rsi > 30 && macd < 0 && priceChange5 < 0)
-    verdict = '🟢 Trade aligns with trend and momentum.';
+    verdict = 'Trade aligns with trend and momentum.';
   else if (trend === 'flat')
-    verdict = '🟡 Sideways market – proceed with caution.';
+    verdict = 'Sideways market - proceed with caution.';
   else if ((direction === 'long' && trend === 'down') || (direction === 'short' && trend === 'up'))
-    verdict = '🔴 Trade goes against the trend. Higher risk.';
+    verdict = 'Trade goes against the trend. Higher risk.';
   else
-    verdict = '🟡 Mixed signals. Wait for clearer conditions.';
+    verdict = 'Mixed signals. Wait for clearer conditions.';
 
   return { insight, verdict };
 }
@@ -143,10 +145,10 @@ function toggleAIInsight(signalId, button) {
       div.innerHTML = 'Signal data not available.';
     }
     div.style.display = 'block';
-    button.textContent = '🔽 Hide AI Insight';
+    button.innerHTML = '<i class="fas fa-chevron-up"></i> Hide Insight';
   } else {
     div.style.display = 'none';
-    button.textContent = '🤖 AI Insight';
+    button.innerHTML = '<i class="fas fa-robot"></i> AI Insight';
   }
 }
 
@@ -163,14 +165,14 @@ function renderSignals() {
     const trail = s.trailingStop ? '$' + Number(s.trailingStop).toFixed(6) : 'N/A';
     const dca = s.dcaPrice ? `<div class="info">DCA Level: $${Number(s.dcaPrice).toFixed(6)}</div>` : '';
     const newsLine = s.newsHeadlines && s.newsHeadlines.length > 0
-      ? '<div class="info">📰 News: ' + s.newsHeadlines[0].substring(0, 60) + '...</div>' : '';
+      ? '<div class="info"><i class="fas fa-newspaper"></i> ' + s.newsHeadlines[0].substring(0, 60) + '...</div>' : '';
 
     const aligned = s.aligned || 0;
     let advisory = '';
-    if (aligned >= 8) advisory = '<div style="background:#00e67633; color:#00e676; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;">🔥 Strong Signal – High Confidence</div>';
-    else if (aligned >= 6) advisory = '<div style="background:#ffaa0033; color:#ffaa00; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;">📊 Moderate Signal – Consider Entry</div>';
-    else if (aligned >= 4) advisory = '<div style="background:#ff525233; color:#ff5252; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;">⚠️ Weak Signal – Caution</div>';
-    else advisory = '<div style="background:#88888833; color:#888; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;">❌ Not Recommended</div>';
+    if (aligned >= 8) advisory = '<div style="background:#00e67633; color:#00e676; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;"><i class="fas fa-check-circle"></i> Strong Signal – High Confidence</div>';
+    else if (aligned >= 6) advisory = '<div style="background:#ffaa0033; color:#ffaa00; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;"><i class="fas fa-balance-scale"></i> Moderate Signal – Consider Entry</div>';
+    else if (aligned >= 4) advisory = '<div style="background:#ff525233; color:#ff5252; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;"><i class="fas fa-exclamation-triangle"></i> Weak Signal – Caution</div>';
+    else advisory = '<div style="background:#88888833; color:#888; padding:4px 8px; border-radius:4px; font-weight:bold; margin-top:5px;"><i class="fas fa-times-circle"></i> Not Recommended</div>';
 
     return `<div class="signal-card">
       <div class="pair-row" onclick="openChart('${s.symbol}')" style="cursor:pointer;">
@@ -187,7 +189,7 @@ function renderSignals() {
       ${dca}
       ${newsLine}
       ${advisory}
-      <button onclick="toggleAIInsight('${s.id}', this)" style="margin-top:8px; padding:6px 12px; background:#4fc3f7; color:#000; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">🤖 AI Insight</button>
+      <button onclick="toggleAIInsight('${s.id}', this)" style="margin-top:8px; padding:6px 12px; background:#4fc3f7; color:#000; border:none; border-radius:4px; font-weight:bold; cursor:pointer;"><i class="fas fa-robot"></i> AI Insight</button>
       <div id="ai-insight-${s.id}" style="display:none; margin-top:8px; padding:10px; background:#1e2a3a; border-radius:6px; color:#ccc; font-size:0.9em;"></div>
     </div>`;
   }).join('');
@@ -203,7 +205,7 @@ async function loadHistory() {
     list.innerHTML = history.reverse().map(s => {
       if (s.type === 'meme_coin') {
         return `<div class="history-card">
-          <div class="pair-row"><span>🐶 ${s.name} (${s.symbol})</span><span class="date">${new Date(s.timestamp).toLocaleString()}</span></div>
+          <div class="pair-row"><span><i class="fas fa-dog"></i> ${s.name} (${s.symbol})</span><span class="date">${new Date(s.timestamp).toLocaleString()}</span></div>
           <div>Price: $${s.price ? Number(s.price).toFixed(6) : '0'} | Prob: ${s.probability}%</div>
         </div>`;
       }
@@ -212,7 +214,7 @@ async function loadHistory() {
       const price = (s.price || 0).toFixed(6);
       const sl = (s.stopLoss || 0).toFixed(6);
       const tp = (s.takeProfit || 0).toFixed(6);
-      const outcome = s.outcome ? (s.outcome === 'win' ? '✅ Win' : '❌ Loss') : '';
+      const outcome = s.outcome ? (s.outcome === 'win' ? '<i class="fas fa-check"></i> Win' : '<i class="fas fa-times"></i> Loss') : '';
       return `<div class="history-card">
         <div class="pair-row">
           <span style="color:${color}; font-weight:bold;">${s.pair} ${s.direction}</span>
@@ -268,8 +270,8 @@ async function loadStats() {
       }).join('');
     };
 
-    const winsHtml = '<h3>✅ Wins (' + wins.length + ')</h3>' + cardsHtml(wins, '✅ Win');
-    const lossesHtml = '<h3>❌ Losses (' + losses.length + ')</h3>' + cardsHtml(losses, '❌ Loss');
+    const winsHtml = '<h3><i class="fas fa-trophy"></i> Wins (' + wins.length + ')</h3>' + cardsHtml(wins, '<i class="fas fa-check"></i> Win');
+    const lossesHtml = '<h3><i class="fas fa-skull"></i> Losses (' + losses.length + ')</h3>' + cardsHtml(losses, '<i class="fas fa-times"></i> Loss');
 
     document.getElementById('statsContent').innerHTML = `
       ${summaryHtml}
@@ -313,11 +315,11 @@ async function openChart(symbol) {
     if (chartInstance) chartInstance.destroy();
     chartInstance = new Chart(ctx, {
       type: 'line',
-      data: { labels, datasets: [{ label: symbol, data: closes, borderColor: '#00c8ff', backgroundColor: 'rgba(0,200,255,0.1)', tension: 0.4 }] },
+      data: { labels, datasets: [{ label: symbol, data: closes, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.1)', tension: 0.4 }] },
       options: {
         responsive: true,
-        plugins: { legend: { labels: { color: '#fff' } } },
-        scales: { x: { ticks: { color: '#fff' } }, y: { ticks: { color: '#fff' } } }
+        plugins: { legend: { labels: { color: '#b0c4de' } } },
+        scales: { x: { ticks: { color: '#b0c4de' } }, y: { ticks: { color: '#b0c4de' } } }
       }
     });
   } catch(err) { console.error(err); }
