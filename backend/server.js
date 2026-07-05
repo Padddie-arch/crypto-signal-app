@@ -64,6 +64,9 @@ const NEWS_CACHE_TTL = 15 * 60 * 1000;
 // ========== COOLDOWN STATE ==========
 const cooldown = {};
 
+// ========== PAIR ERROR SKIPPING ==========
+const pairErrors = {};   // key: symbol, value: error count
+
 // ========== LIVE PRICE ==========
 async function fetchLivePrice(symbol) {
   const cacheKey = `price_${symbol}`;
@@ -85,6 +88,12 @@ async function fetchLivePrice(symbol) {
 
 // ========== CANDLES ==========
 async function fetchCandles(symbol, interval, minCandles = 50) {
+  // Skip if pair has too many recent errors
+  if (pairErrors[symbol] >= 3) {
+    console.log(`⏩ Skipping ${symbol} (too many errors)`);
+    return null;
+  }
+
   const cacheKey = `kline_${symbol}_${interval}`;
   const now = Date.now();
   if (klineCache[cacheKey] && (now - klineCache[cacheKey].timestamp) < KLINE_CACHE_TTL) {
@@ -111,9 +120,12 @@ async function fetchCandles(symbol, interval, minCandles = 50) {
     }));
     candles.reverse();
     klineCache[cacheKey] = { data: candles, timestamp: now };
+    // Reset error count on success
+    pairErrors[symbol] = 0;
     return candles;
   } catch (err) {
     console.error(`❌ Kline failed for ${symbol} ${interval}: ${err.message}`);
+    pairErrors[symbol] = (pairErrors[symbol] || 0) + 1;
     return null;
   }
 }
@@ -342,30 +354,41 @@ function vwap(candles) {
   return sumVol > 0 ? sumTPV / sumVol : candles[candles.length - 1].close;
 }
 
-// ========== BALANCED SIGNAL GENERATION ==========
+// ========== UPGRADED SIGNAL GENERATION ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
   const currentPrice = livePrice;
   if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) return null;
 
-  // Minimum volatility filter (ATR > 0.5% of price)
+  // --- Volatility‑adjusted ATR filter ---
   const currentATR = atr(candles, 14);
-  if (currentATR / currentPrice < 0.005) return null;
+  const atrPercent = currentATR / currentPrice;
+  if (atrPercent < 0.005) return null;   // dead market
 
-  // Volume filter: volume must be above average (NO rising requirement)
+  // --- Volume filter: above average AND rising ---
   const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
   const lastVolume = volumes[volumes.length - 1];
-  if (lastVolume < avgVolume20) return null;
+  const prevVolume = volumes[volumes.length - 2];
+  if (lastVolume < avgVolume20 || lastVolume <= prevVolume) return null;
 
-  // News sentiment (RELAXED: require ≥3 headlines, strength ≥2)
+  // --- News sentiment ---
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
-  // Timeframe‑dependent parameters
+  // --- Dynamic ADX threshold based on volatility ---
   const is4h = (interval === '4h');
   const is1h = (interval === '1h');
   const isShortTF = (interval === '5m' || interval === '15m');
+
+  // Base thresholds per timeframe
+  let baseADX = is4h ? 20 : is1h ? 18 : 15;
+  let baseMinActive = is4h ? 3 : 2;
+
+  // Adjust for high volatility: tighten ADX, keep minActive
+  if (atrPercent > 0.02) { // very volatile
+    baseADX += 2;          // require stronger trend
+  }
 
   const rsiOversold = 25;
   const rsiOverbought = 75;
@@ -374,10 +397,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const bollOversold = 0.15;
   const bollOverbought = 0.85;
 
-  const adxThreshold = is4h ? 20 : is1h ? 18 : 15;
-  const minActiveStrats = is4h ? 3 : 2;
-
-  // Indicators
+  // --- Indicators ---
   const rsiVals = rsiArr(closes, 14);
   const lastRSI = rsiVals[rsiVals.length - 1];
   const macdRes = (() => {
@@ -395,7 +415,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const div = rsiDivergence(candles, 14);
   const vwapVal = vwap(candles);
 
-  // 12 strategy votes
+  // --- 12 strategy votes ---
   let rsiVote = 0, macdVote = 0, emaVote = 0, adxVote = 0, volVote = 0, stochVote = 0,
       ichiVote = 0, bollVote = 0, aroonVote = 0, candleVote = 0, divVote = 0;
 
@@ -403,7 +423,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (macdRes.hist > 0) macdVote = 1; else if (macdRes.hist < 0) macdVote = -1;
   const ema9 = ema(closes, 9), ema21 = ema(closes, 21);
   emaVote = ema9[ema9.length - 1] > ema21[ema21.length - 1] ? 1 : -1;
-  if (adxRes.adx > adxThreshold) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
+  if (adxRes.adx > baseADX) adxVote = adxRes.plusDI > adxRes.minusDI ? 1 : -1;
   const volumeSpike = lastVolume > avgVolume20 * 1.5;
   if (volumeSpike && closes.length > 1) volVote = currentPrice > closes[closes.length - 2] ? 1 : -1;
   if (stoch < stochOversold) stochVote = 1; else if (stoch > stochOverbought) stochVote = -1;
@@ -418,13 +438,13 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const buyVotes = votes.filter(v => v === 1).length;
   const sellVotes = votes.filter(v => v === -1).length;
   const totalActive = votes.filter(v => v !== 0).length;
-  if (totalActive < minActiveStrats) return null;
+  if (totalActive < baseMinActive) return null;
 
   const aligned = Math.max(buyVotes, sellVotes);
   const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // Trend alignment (50‑EMA slope) – only 4h blocks flat markets
+  // --- Trend alignment (50‑EMA slope) ---
   const ema50 = ema(closes, 50);
   const recentEma50 = ema50.slice(-5);
   const slope50 = recentEma50[4] - recentEma50[0];
@@ -433,11 +453,11 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (direction === 'SELL' && trendDir === 'up') return null;
   if (is4h && trendDir === 'flat') return null;
 
-  // VWAP filter – KEPT for all
+  // --- VWAP filter ---
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
-  // Cooldown: 1 candle for all timeframes
+  // --- Cooldown ---
   const cooldownKey = `${pair.symbol}_${interval}`;
   const lastFire = cooldown[cooldownKey] || 0;
   const candleMs = interval === '1h' ? 3600000 : interval === '4h' ? 14400000 :
@@ -445,13 +465,14 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (Date.now() - lastFire < candleMs) return null;
   cooldown[cooldownKey] = Date.now();
 
-  // Stop Loss & Take Profit
-  const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
-  const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3.0 : currentPrice - currentATR * 3.0;
+  // --- Stop Loss & Take Profit (dynamic based on volatility) ---
+  const slMultiplier = atrPercent > 0.03 ? 1.2 : 1.5;   // tighter stop in high volatility
+  const tpMultiplier = atrPercent > 0.03 ? 2.5 : 3.0;
+  const stopLoss = direction === 'BUY' ? currentPrice - currentATR * slMultiplier : currentPrice + currentATR * slMultiplier;
+  const takeProfit = direction === 'BUY' ? currentPrice + currentATR * tpMultiplier : currentPrice - currentATR * tpMultiplier;
   const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
   const dcaPrice = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
 
-  // 5‑candle price change for AI
   const priceChange5 = closes.length >= 6
     ? ((currentPrice - closes[closes.length - 6]) / closes[closes.length - 6] * 100).toFixed(2)
     : '0.00';
@@ -464,8 +485,8 @@ async function generateSignal(pair, candles, interval, livePrice) {
     adx: adxRes.adx, vwap: vwapVal,
     divergence: div.divergence || '', pattern: candlePat.pattern || '',
     newsHeadlines: news.headlines,
-    trendDir: trendDir,
-    priceChange5: priceChange5,
+    trendDir,
+    priceChange5,
     timestamp: new Date().toISOString()
   };
 }
@@ -551,7 +572,6 @@ async function generateAllSignals() {
     }
   }
 
-  // 🔍 Diagnostic log – shows every signal that passed its own filters
   console.log(`🔍 Signals generated (${freshSignals.length}):`);
   freshSignals.forEach(s => console.log(`   ${s.symbol} ${s.timeframe} ${s.direction} align=${s.aligned}/${s.totalStrategies}`));
 
@@ -583,7 +603,7 @@ async function tick() {
 }
 
 setTimeout(tick, 10000);
-setInterval(tick, 10 * 60 * 1000);   // run every 10 minutes
+setInterval(tick, 10 * 60 * 1000);
 
 // ========== ROUTES ==========
 app.get('/api/signals', (req, res) => res.json(latestSignals));
