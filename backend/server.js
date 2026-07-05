@@ -64,9 +64,6 @@ const NEWS_CACHE_TTL = 15 * 60 * 1000;
 // ========== COOLDOWN STATE ==========
 const cooldown = {};
 
-// ========== PAIR ERROR SKIPPING ==========
-const pairErrors = {};   // key: symbol, value: error count
-
 // ========== LIVE PRICE ==========
 async function fetchLivePrice(symbol) {
   const cacheKey = `price_${symbol}`;
@@ -87,12 +84,9 @@ async function fetchLivePrice(symbol) {
 }
 
 // ========== CANDLES ==========
-async function fetchCandles(symbol, interval, minCandles = 50) {
-  // Skip if pair has too many recent errors
-  if (pairErrors[symbol] >= 3) {
-    console.log(`⏩ Skipping ${symbol} (too many errors)`);
-    return null;
-  }
+async function fetchCandles(symbol, interval, minCandlesParam) {
+  const isShort = (interval === '5m' || interval === '15m');
+  const minCandles = minCandlesParam !== undefined ? minCandlesParam : (isShort ? 30 : 50);
 
   const cacheKey = `kline_${symbol}_${interval}`;
   const now = Date.now();
@@ -120,12 +114,9 @@ async function fetchCandles(symbol, interval, minCandles = 50) {
     }));
     candles.reverse();
     klineCache[cacheKey] = { data: candles, timestamp: now };
-    // Reset error count on success
-    pairErrors[symbol] = 0;
     return candles;
   } catch (err) {
     console.error(`❌ Kline failed for ${symbol} ${interval}: ${err.message}`);
-    pairErrors[symbol] = (pairErrors[symbol] || 0) + 1;
     return null;
   }
 }
@@ -354,50 +345,52 @@ function vwap(candles) {
   return sumVol > 0 ? sumTPV / sumVol : candles[candles.length - 1].close;
 }
 
-// ========== UPGRADED SIGNAL GENERATION ==========
+// ========== SIGNAL GENERATION (adaptive per timeframe) ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
   const currentPrice = livePrice;
   if (!currentPrice || isNaN(currentPrice) || currentPrice <= 0) return null;
 
-  // --- Volatility‑adjusted ATR filter ---
   const currentATR = atr(candles, 14);
-  const atrPercent = currentATR / currentPrice;
-  if (atrPercent < 0.005) return null;   // dead market
-
-  // --- Volume filter: above average AND rising ---
-  const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-  const lastVolume = volumes[volumes.length - 1];
-  const prevVolume = volumes[volumes.length - 2];
-  if (lastVolume < avgVolume20 || lastVolume <= prevVolume) return null;
-
-  // --- News sentiment ---
-  const news = await fetchNewsSentiment(pair.symbol);
-  const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
-
-  // --- Dynamic ADX threshold based on volatility ---
   const is4h = (interval === '4h');
   const is1h = (interval === '1h');
   const isShortTF = (interval === '5m' || interval === '15m');
 
-  // Base thresholds per timeframe
-  let baseADX = is4h ? 20 : is1h ? 18 : 15;
-  let baseMinActive = is4h ? 3 : 2;
+  // ---- VOLATILITY FILTER (looser for short TFs) ----
+  const atrThreshold = isShortTF ? 0.003 : 0.005;
+  if (currentATR / currentPrice < atrThreshold) return null;
 
-  // Adjust for high volatility: tighten ADX, keep minActive
-  if (atrPercent > 0.02) { // very volatile
-    baseADX += 2;          // require stronger trend
+  // ---- VOLUME FILTER (above average for all; rising only for 1h/4h) ----
+  const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+  const lastVolume = volumes[volumes.length - 1];
+  if (lastVolume < avgVolume20) return null;
+  if (is4h || is1h) {
+    const prevVolume = volumes[volumes.length - 2];
+    if (lastVolume <= prevVolume) return null;
   }
 
-  const rsiOversold = 25;
-  const rsiOverbought = 75;
-  const stochOversold = 15;
-  const stochOverbought = 85;
-  const bollOversold = 0.15;
-  const bollOverbought = 0.85;
+  // ---- NEWS ----
+  const news = await fetchNewsSentiment(pair.symbol);
+  const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
-  // --- Indicators ---
+  // ---- ADX THRESHOLDS (per timeframe) ----
+  let baseADX;
+  if (interval === '4h') baseADX = 20;
+  else if (interval === '1h') baseADX = 15;
+  else if (interval === '15m') baseADX = 12;
+  else if (interval === '5m') baseADX = 10;
+  const baseMinActive = is4h ? 3 : 2;
+
+  // ---- INDICATOR VOTE THRESHOLDS (wider for short TFs) ----
+  const rsiOversold = isShortTF ? 20 : 25;
+  const rsiOverbought = isShortTF ? 80 : 75;
+  const stochOversold = isShortTF ? 10 : 15;
+  const stochOverbought = isShortTF ? 90 : 85;
+  const bollOversold = isShortTF ? 0.1 : 0.15;
+  const bollOverbought = isShortTF ? 0.9 : 0.85;
+
+  // ---- INDICATORS ----
   const rsiVals = rsiArr(closes, 14);
   const lastRSI = rsiVals[rsiVals.length - 1];
   const macdRes = (() => {
@@ -415,7 +408,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const div = rsiDivergence(candles, 14);
   const vwapVal = vwap(candles);
 
-  // --- 12 strategy votes ---
+  // ---- 12 VOTES ----
   let rsiVote = 0, macdVote = 0, emaVote = 0, adxVote = 0, volVote = 0, stochVote = 0,
       ichiVote = 0, bollVote = 0, aroonVote = 0, candleVote = 0, divVote = 0;
 
@@ -444,20 +437,20 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // --- Trend alignment (50‑EMA slope) ---
+  // ---- TREND ALIGNMENT (50‑EMA slope) ----
   const ema50 = ema(closes, 50);
   const recentEma50 = ema50.slice(-5);
   const slope50 = recentEma50[4] - recentEma50[0];
   const trendDir = slope50 > 0 ? 'up' : slope50 < 0 ? 'down' : 'flat';
   if (direction === 'BUY' && trendDir === 'down') return null;
   if (direction === 'SELL' && trendDir === 'up') return null;
-  if (is4h && trendDir === 'flat') return null;
+  if (is4h && trendDir === 'flat') return null;   // only 4h blocks flat markets
 
-  // --- VWAP filter ---
+  // ---- VWAP FILTER ----
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
-  // --- Cooldown ---
+  // ---- COOLDOWN ----
   const cooldownKey = `${pair.symbol}_${interval}`;
   const lastFire = cooldown[cooldownKey] || 0;
   const candleMs = interval === '1h' ? 3600000 : interval === '4h' ? 14400000 :
@@ -465,11 +458,9 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (Date.now() - lastFire < candleMs) return null;
   cooldown[cooldownKey] = Date.now();
 
-  // --- Stop Loss & Take Profit (dynamic based on volatility) ---
-  const slMultiplier = atrPercent > 0.03 ? 1.2 : 1.5;   // tighter stop in high volatility
-  const tpMultiplier = atrPercent > 0.03 ? 2.5 : 3.0;
-  const stopLoss = direction === 'BUY' ? currentPrice - currentATR * slMultiplier : currentPrice + currentATR * slMultiplier;
-  const takeProfit = direction === 'BUY' ? currentPrice + currentATR * tpMultiplier : currentPrice - currentATR * tpMultiplier;
+  // ---- STOP LOSS & TAKE PROFIT ----
+  const stopLoss = direction === 'BUY' ? currentPrice - currentATR * 1.5 : currentPrice + currentATR * 1.5;
+  const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3.0 : currentPrice - currentATR * 3.0;
   const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
   const dcaPrice = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
 
@@ -550,7 +541,7 @@ async function sendPushNotifications(signals) {
   }
 }
 
-// ========== MAIN GENERATION (INDEPENDENT TIMEFRAMES) ==========
+// ========== MAIN GENERATION ==========
 async function generateAllSignals() {
   const freshSignals = [];
   for (const pair of PAIRS) {
@@ -558,7 +549,7 @@ async function generateAllSignals() {
     if (!livePrice) continue;
     for (const tf of TIMEFRAMES) {
       const candles = await fetchCandles(pair.symbol, tf);
-      if (!candles || candles.length < 50) continue;
+      if (!candles || candles.length < (tf === '5m' || tf === '15m' ? 30 : 50)) continue;
       const signal = await generateSignal(pair, candles, tf, livePrice);
       if (signal) {
         signal.id = Date.now() + Math.random();
