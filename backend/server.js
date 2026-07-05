@@ -353,16 +353,16 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const currentATR = atr(candles, 14);
   if (currentATR / currentPrice < 0.005) return null;
 
-  // Volume filter: volume must be above average
+  // Volume filter: volume must be above average (NO rising requirement)
   const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
   const lastVolume = volumes[volumes.length - 1];
   if (lastVolume < avgVolume20) return null;
 
-  // News sentiment
+  // News sentiment (RELAXED: require ≥3 headlines, strength ≥2)
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
-  // Timeframe‑dependent parameters – 1h now friendlier
+  // Timeframe‑dependent parameters
   const is4h = (interval === '4h');
   const is1h = (interval === '1h');
   const isShortTF = (interval === '5m' || interval === '15m');
@@ -424,7 +424,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
-  // Trend alignment (50‑EMA slope) – flat allowed for non‑4h
+  // Trend alignment (50‑EMA slope) – only 4h blocks flat markets
   const ema50 = ema(closes, 50);
   const recentEma50 = ema50.slice(-5);
   const slope50 = recentEma50[4] - recentEma50[0];
@@ -433,11 +433,11 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (direction === 'SELL' && trendDir === 'up') return null;
   if (is4h && trendDir === 'flat') return null;
 
-  // VWAP filter
+  // VWAP filter – KEPT for all
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
-  // Cooldown: 1 candle
+  // Cooldown: 1 candle for all timeframes
   const cooldownKey = `${pair.symbol}_${interval}`;
   const lastFire = cooldown[cooldownKey] || 0;
   const candleMs = interval === '1h' ? 3600000 : interval === '4h' ? 14400000 :
@@ -522,9 +522,9 @@ async function sendPushNotifications(signals) {
   }
 }
 
-// ========== MAIN GENERATION (with diagnostic log) ==========
+// ========== MAIN GENERATION (INDEPENDENT TIMEFRAMES) ==========
 async function generateAllSignals() {
-  const rawSignals = [];
+  const freshSignals = [];
   for (const pair of PAIRS) {
     const livePrice = await fetchLivePrice(pair.symbol);
     if (!livePrice) continue;
@@ -539,43 +539,15 @@ async function generateAllSignals() {
         signal.timeframe = tf;
         signal.status = 'open';
         signal.outcome = null;
-        rawSignals.push(signal);
+        freshSignals.push(signal);
       }
     }
   }
 
-  // 🔍 Diagnostic log – shows every raw signal before confluence
-  console.log(`🔍 Raw signals (${rawSignals.length}):`);
-  rawSignals.forEach(s => console.log(`   ${s.symbol} ${s.timeframe} ${s.direction} align=${s.aligned}/${s.totalStrategies}`));
+  // 🔍 Diagnostic log – shows every signal that passed its own filters
+  console.log(`🔍 Signals generated (${freshSignals.length}):`);
+  freshSignals.forEach(s => console.log(`   ${s.symbol} ${s.timeframe} ${s.direction} align=${s.aligned}/${s.totalStrategies}`));
 
-  // Build direction map for 1h/4h
-  const dirMap = {};
-  for (const sig of rawSignals) {
-    if (sig.timeframe === '1h' || sig.timeframe === '4h') {
-      if (!dirMap[sig.symbol]) dirMap[sig.symbol] = {};
-      dirMap[sig.symbol][sig.timeframe] = sig.direction;
-    }
-  }
-
-  // Filter: short TFs must agree with 1h or 4h; 1h/4h must agree if both exist
-  const freshSignals = rawSignals.filter(sig => {
-    const sym = sig.symbol;
-    const tf = sig.timeframe;
-    const dirs = dirMap[sym] || {};
-    if (tf === '1h') {
-      if (dirs['4h'] && dirs['4h'] !== sig.direction) return false;
-      return true;
-    } else if (tf === '4h') {
-      if (dirs['1h'] && dirs['1h'] !== sig.direction) return false;
-      return true;
-    } else {
-      const higher = dirs['1h'] || dirs['4h'];
-      if (higher && higher !== sig.direction) return false;
-      return true;
-    }
-  });
-
-  console.log(`📊 Raw signals: ${rawSignals.length}, after confluence: ${freshSignals.length}`);
   return freshSignals;
 }
 
