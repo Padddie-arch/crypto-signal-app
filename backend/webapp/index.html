@@ -2,21 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Crypto Signals</title>
-
-  <!-- FAVICON – your logo (32x32) -->
   <link rel="icon" type="image/jpeg" href="https://i.ibb.co/5hqTmv23/LOGO.jpg" sizes="32x32">
-
   <link rel="manifest" href="manifest.json">
-
-  <!-- Google Font -->
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
-  <!-- Font Awesome icons (free) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="stylesheet" href="style.css?v=10">
-
-  <!-- OneSignal -->
+  <link rel="stylesheet" href="style.css?v=12">
   <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
   <script>
     window.OneSignal = window.OneSignal || [];
@@ -33,7 +25,7 @@
 </head>
 <body>
   <div id="app">
-    <!-- Header – logo locked with inline + class overrides -->
+    <!-- ========== HEADER (only once) ========== -->
     <header>
       <div class="header-left">
         <div class="logo-lock">
@@ -51,43 +43,40 @@
       </div>
     </header>
 
-    <!-- Live price ticker -->
+    <!-- ========== TICKER ========== -->
     <div id="ticker">
       <marquee id="tickerContent">Loading prices...</marquee>
     </div>
 
-    <!-- Tab Navigation -->
+    <!-- ========== TABS (only once) ========== -->
     <div class="tabs">
       <button id="tab-signals" class="tab active" onclick="switchTab('signals')"><i class="fas fa-chart-bar"></i> Signals</button>
       <button id="tab-history" class="tab" onclick="switchTab('history')"><i class="fas fa-history"></i> History</button>
       <button id="tab-stats" class="tab" onclick="switchTab('stats')"><i class="fas fa-percent"></i> Stats</button>
     </div>
 
-    <!-- Signals Section -->
+    <!-- ========== SECTIONS (no duplicates) ========== -->
     <section id="signals-section">
       <h2><i class="fas fa-bolt"></i> High Confidence Signals</h2>
       <div id="signalList"></div>
     </section>
 
-    <!-- History Section -->
     <section id="history-section" style="display: none;">
       <h2><i class="fas fa-clock"></i> Past Signals</h2>
       <div id="historyList"></div>
     </section>
 
-    <!-- Stats Section -->
     <section id="stats-section" style="display: none;">
       <h2><i class="fas fa-chart-pie"></i> Performance Stats</h2>
       <div id="statsContent">Loading...</div>
     </section>
 
-    <!-- Meme Coins Section -->
     <section id="meme-coins">
       <h2><i class="fas fa-coins"></i> New Solana Meme Coins</h2>
       <div id="memeList"></div>
     </section>
 
-    <!-- Chart Modal -->
+    <!-- ========== CHART MODAL ========== -->
     <div id="chartModal" class="modal">
       <div class="modal-content">
         <span class="close">&times;</span>
@@ -97,109 +86,9 @@
 
     <button id="scrollToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})"><i class="fas fa-arrow-up"></i></button>
   </div>
+
   <audio id="alertSound" src="https://cdn.jsdelivr.net/npm/@pwabuilder/pwafire@latest/assets/notification.mp3" preload="auto"></audio>
-  <script src="app.js"></script>
-</body>
-</html><!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Crypto Signals</title>
-
-  <!-- FAVICON – your logo (32x32) -->
-  <link rel="icon" type="image/jpeg" href="https://i.ibb.co/5hqTmv23/LOGO.jpg" sizes="32x32">
-
-  <link rel="manifest" href="manifest.json">
-
-  <!-- Google Font -->
-  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
-  <!-- Font Awesome icons (free) -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="stylesheet" href="style.css?v=10">
-
-  <!-- OneSignal -->
-  <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
-  <script>
-    window.OneSignal = window.OneSignal || [];
-    OneSignal.push(function() {
-      OneSignal.init({
-        appId: "YOUR_ONESIGNAL_APP_ID",   // ← replace with your real OneSignal App ID
-        notifyButton: { enable: false },
-        allowLocalhostAsSecureOrigin: true
-      });
-    });
-  </script>
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-</head>
-<body>
-  <div id="app">
-    <!-- Header – logo locked with inline + class overrides -->
-    <header>
-      <div class="header-left">
-        <div class="logo-lock">
-          <img src="https://i.ibb.co/5hqTmv23/LOGO.jpg" alt="Logo">
-        </div>
-        <h1><i class="fas fa-bolt"></i> Crypto Signals</h1>
-      </div>
-      <div class="header-right">
-        <button id="themeToggle" title="Switch theme"><i class="fas fa-moon"></i></button>
-        <span>Auto Trade</span>
-        <label class="switch">
-          <input type="checkbox" id="autoTradeToggle">
-          <span class="slider"></span>
-        </label>
-      </div>
-    </header>
-
-    <!-- Live price ticker -->
-    <div id="ticker">
-      <marquee id="tickerContent">Loading prices...</marquee>
-    </div>
-
-    <!-- Tab Navigation -->
-    <div class="tabs">
-      <button id="tab-signals" class="tab active" onclick="switchTab('signals')"><i class="fas fa-chart-bar"></i> Signals</button>
-      <button id="tab-history" class="tab" onclick="switchTab('history')"><i class="fas fa-history"></i> History</button>
-      <button id="tab-stats" class="tab" onclick="switchTab('stats')"><i class="fas fa-percent"></i> Stats</button>
-    </div>
-
-    <!-- Signals Section -->
-    <section id="signals-section">
-      <h2><i class="fas fa-bolt"></i> High Confidence Signals</h2>
-      <div id="signalList"></div>
-    </section>
-
-    <!-- History Section -->
-    <section id="history-section" style="display: none;">
-      <h2><i class="fas fa-clock"></i> Past Signals</h2>
-      <div id="historyList"></div>
-    </section>
-
-    <!-- Stats Section -->
-    <section id="stats-section" style="display: none;">
-      <h2><i class="fas fa-chart-pie"></i> Performance Stats</h2>
-      <div id="statsContent">Loading...</div>
-    </section>
-
-    <!-- Meme Coins Section -->
-    <section id="meme-coins">
-      <h2><i class="fas fa-coins"></i> New Solana Meme Coins</h2>
-      <div id="memeList"></div>
-    </section>
-
-    <!-- Chart Modal -->
-    <div id="chartModal" class="modal">
-      <div class="modal-content">
-        <span class="close">&times;</span>
-        <canvas id="priceChart"></canvas>
-      </div>
-    </div>
-
-    <button id="scrollToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})"><i class="fas fa-arrow-up"></i></button>
-  </div>
-  <audio id="alertSound" src="https://cdn.jsdelivr.net/npm/@pwabuilder/pwafire@latest/assets/notification.mp3" preload="auto"></audio>
+  <!-- Only ONE app.js script tag -->
   <script src="app.js"></script>
 </body>
 </html>
