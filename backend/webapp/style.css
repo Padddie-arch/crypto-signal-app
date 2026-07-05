@@ -1,103 +1,320 @@
 :root {
-  --bg: #0d2b45;
-  --card: #0a1f33;
-  --text: #fff;
-  --accent: #ffaa00;
+  --bg: #060b1a;
+  --card: #101a30;
+  --header-bg: #080e22;
+  --text: #a0b5d0;
+  --accent: #00d4ff;
+  --accent2: #ff9f00;
   --success: #00e676;
   --danger: #ff5252;
-  --muted: #ccc;
+  --muted: #5c6d84;
+  --border: #1a2540;
+  --glow: rgba(0, 212, 255, 0.08);
 }
-body.light {
-  --bg: #f5f5f5;
-  --card: #ffffff;
-  --text: #222;
-  --accent: #e65100;
-  --success: #00c853;
-  --danger: #d32f2f;
-  --muted: #666;
-}
-body {
+
+* {
+  box-sizing: border-box;
   margin: 0;
+  padding: 0;
+}
+
+body {
   background: var(--bg);
   color: var(--text);
-  font-family: sans-serif;
-  transition: background 0.3s;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: 0.4px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* -------- HEADER -------- */
 header {
-  background: #0a1f33;
-  padding: 10px 15px;
+  background: var(--header-bg);
+  padding: 10px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* ====== LOGO LOCK ====== */
+.logo-lock {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px;
+  min-height: 36px;
+  max-width: 36px;
+  max-height: 36px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+.logo-lock img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  display: block;
+  max-width: 100% !important;
+  max-height: 100% !important;
+}
+
+header h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 1.2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* -------- THEME TOGGLE -------- */
+#themeToggle {
+  background: none;
+  border: none;
+  color: var(--accent2);
+  font-size: 20px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+#themeToggle:hover {
+  color: var(--accent);
+}
+
+/* -------- AUTO TRADE SWITCH -------- */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 26px;
+}
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--muted);
+  border-radius: 26px;
+  transition: 0.3s;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: 0.3s;
+}
+input:checked + .slider { background: var(--accent); }
+input:checked + .slider:before { transform: translateX(26px); }
+
+/* -------- TICKER -------- */
+#ticker {
+  background: #000;
+  color: #0f0;
+  padding: 5px 14px;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.3px;
+}
+
+/* -------- TABS -------- */
+.tabs {
+  display: flex;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  flex: 1;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 13px 0;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  position: relative;
+}
+.tab:hover {
+  color: var(--accent);
+  background: var(--glow);
+}
+.tab.active {
+  color: var(--accent);
+  border-bottom: 3px solid var(--accent);
+  background: rgba(0,212,255,0.05);
+}
+
+/* -------- SECTIONS -------- */
+section {
+  padding: 18px 24px;
+}
+section h2 {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--accent2);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-left: 4px solid var(--accent);
+  padding-left: 12px;
+}
+
+/* -------- SIGNAL & HISTORY CARDS -------- */
+.signal-card, .history-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 13px 16px;
+  margin: 8px 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border 0.2s, box-shadow 0.2s;
+}
+.signal-card:hover, .history-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--glow);
+}
+.pair-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-header button {
-  background: transparent;
-  border: none;
-  color: var(--text);
-  font-size: 1.2em;
-  cursor: pointer;
+.timeframe {
+  color: var(--muted);
+  font-size: 13px;
 }
-.tabs { display: flex; background: #0a1f33; }
-.tab {
-  flex: 1; background: transparent; color: #aaa; border: none; padding: 12px;
-  font-size: 16px; cursor: pointer;
+.confidence {
+  color: var(--accent2);
+  font-weight: 700;
+  font-size: 15px;
 }
-.tab.active { color: #fff; border-bottom: 3px solid var(--accent); }
-section { padding: 10px; }
-h2 { color: var(--accent); font-size: 18px; }
+.info {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.date {
+  color: var(--accent);
+  font-size: 12px;
+  margin-top: 4px;
+}
 
-#ticker {
-  background: #000;
-  color: #0f0;
-  padding: 5px;
-  font-family: monospace;
+/* -------- MEME ITEMS -------- */
+.meme-item {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 9px 14px;
+  margin: 6px 0;
+  border-radius: 8px;
   font-size: 14px;
 }
 
-.signal-card, .history-card {
+/* -------- STATS SUBTABS -------- */
+.stats-subtabs {
+  margin: 18px 0;
+  display: flex;
+  gap: 8px;
+}
+.subtab {
   background: var(--card);
-  padding: 8px;
-  margin: 6px 0;
-  border-left: 4px solid var(--accent);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 10px 24px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.95em;
+  font-weight: 600;
+  transition: all 0.2s;
 }
-.history-card { border-left-color: #4fc3f7; }
-.pair-row { display: flex; justify-content: space-between; }
-.timeframe { color: #aaa; font-size: 0.8em; }
-.confidence { color: var(--accent); font-weight: bold; }
-.info { color: var(--muted); font-size: 0.85em; margin-top: 2px; }
-.date { color: #90caf9; font-size: 0.8em; }
-
-.meme-item {
-  background: var(--card);
-  padding: 6px; margin: 4px 0; border-radius: 4px;
-  font-size: 0.9em;
+.subtab:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.subtab.active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
 }
 
+/* -------- SCROLL TO TOP -------- */
 #scrollToTop {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
+  bottom: 22px;
+  right: 22px;
   background: var(--accent);
   color: #000;
   border: none;
   border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  font-size: 20px;
-  display: none; /* shown in JS */
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+  display: none;
   cursor: pointer;
   z-index: 1000;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+  transition: transform 0.2s;
+}
+#scrollToTop:hover {
+  transform: scale(1.08);
 }
 
+/* -------- MODAL -------- */
 .modal {
-  display: none; position: fixed; z-index: 10; left:0;top:0;
-  width:100%;height:100%; background: rgba(0,0,0,0.8);
+  display: none;
+  position: fixed;
+  z-index: 10;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.85);
 }
 .modal-content {
-  background: var(--card); margin: 10% auto; padding: 20px;
-  width: 90%; border-radius: 10px;
+  background: var(--card);
+  margin: 8% auto;
+  padding: 24px;
+  width: 92%;
+  max-width: 800px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
 }
-.close { color: #aaa; float: right; font-size: 28px; cursor: pointer; }
+.close {
+  color: var(--muted);
+  float: right;
+  font-size: 30px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.close:hover {
+  color: var(--accent);
+}
+
+/* -------- SCROLLBAR -------- */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
