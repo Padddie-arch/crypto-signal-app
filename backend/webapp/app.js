@@ -1,7 +1,16 @@
 const SERVER_URL = 'https://crypto-signal-app-cvxw.onrender.com';   // your real Render URL
 let signals = [], memeCoins = [], chartInstance = null;
 let theme = localStorage.getItem('theme') || 'dark';
+let confluenceEnabled = localStorage.getItem('confluence') === 'true';
 
+// -------- Confluence toggle --------
+document.getElementById('confluenceToggle').addEventListener('change', (e) => {
+  confluenceEnabled = e.target.checked;
+  localStorage.setItem('confluence', confluenceEnabled);
+  renderSignals();   // re‑filter the displayed signals
+});
+
+// -------- Theme toggle (unchanged) --------
 function toggleTheme() {
   theme = theme === 'dark' ? 'light' : 'dark';
   document.body.className = theme;
@@ -12,10 +21,12 @@ function toggleTheme() {
 document.body.className = theme;
 document.getElementById('themeToggle')?.addEventListener('click', toggleTheme);
 
+// -------- Scroll to top (unchanged) --------
 window.addEventListener('scroll', () => {
   document.getElementById('scrollToTop').style.display = window.scrollY > 200 ? 'block' : 'none';
 });
 
+// -------- Ticker update (unchanged) --------
 async function updateTicker() {
   try {
     const res = await fetch(SERVER_URL + '/api/prices');
@@ -33,10 +44,12 @@ async function updateTicker() {
 setInterval(updateTicker, 60000);
 updateTicker();
 
+// -------- Sound alert (unchanged) --------
 function playAlert() {
   document.getElementById('alertSound')?.play().catch(() => {});
 }
 
+// -------- Socket connection (unchanged) --------
 const socket = io(SERVER_URL);
 socket.on('new_signals', (data) => {
   const normal = data.filter(s => !s.type);
@@ -45,20 +58,22 @@ socket.on('new_signals', (data) => {
   memeCoins = meme;
   renderSignals();
   renderMemeCoins();
-  const strong = normal.filter(s => (s.aligned || 0) >= 8 && (s.totalStrategies || 12) >= 12);
+  const strong = normal.filter(s => (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 6);
   if (strong.length > 0) playAlert();
 });
 
+// -------- Tab switching (now includes 1h4h-stats) --------
 function switchTab(tab) {
-  ['signals','history','stats'].forEach(t => {
+  ['signals','history','stats','1h4h-stats'].forEach(t => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t===tab);
     document.getElementById(`${t}-section`).style.display = t===tab ? 'block' : 'none';
   });
   if (tab==='history') loadHistory();
   if (tab==='stats') loadStats();
+  if (tab==='1h4h-stats') load1h4hStats();
 }
 
-// ---------- AI INSIGHT ----------
+// ---------- AI INSIGHT (unchanged) ----------
 function generateAIInsight(signal) {
   const direction = signal.direction === 'BUY' ? 'long' : 'short';
   const rsi = signal.rsi || 50;
@@ -146,10 +161,40 @@ function toggleAIInsight(signalId, button) {
   }
 }
 
-// ---------- RENDER SIGNALS ----------
+// ---------- CONFLUENCE FILTER (new) ----------
+function applyConfluenceFilter(signals) {
+  if (!confluenceEnabled) return signals;
+  // Build direction map for 1h/4h
+  const dirMap = {};
+  for (const s of signals) {
+    if (s.timeframe === '1h' || s.timeframe === '4h') {
+      if (!dirMap[s.symbol]) dirMap[s.symbol] = {};
+      dirMap[s.symbol][s.timeframe] = s.direction;
+    }
+  }
+  return signals.filter(sig => {
+    const sym = sig.symbol;
+    const tf = sig.timeframe;
+    const dirs = dirMap[sym] || {};
+    if (tf === '1h') {
+      if (dirs['4h'] && dirs['4h'] !== sig.direction) return false;
+      return true;
+    } else if (tf === '4h') {
+      if (dirs['1h'] && dirs['1h'] !== sig.direction) return false;
+      return true;
+    } else {
+      const higher = dirs['1h'] || dirs['4h'];
+      if (higher && higher !== sig.direction) return false;
+      return true;
+    }
+  });
+}
+
+// ---------- RENDER SIGNALS (now uses confluence filter) ----------
 function renderSignals() {
   const list = document.getElementById('signalList');
-  const sorted = signals.sort((a,b) => b.confidence - a.confidence);
+  const filtered = applyConfluenceFilter(signals);
+  const sorted = filtered.sort((a,b) => b.confidence - a.confidence);
   list.innerHTML = sorted.map(s => {
     const isBuy = s.direction === 'BUY';
     const color = isBuy ? '#00e676' : '#ff5252';
@@ -189,7 +234,7 @@ function renderSignals() {
   }).join('');
 }
 
-// ---------- HISTORY ----------
+// ---------- HISTORY (unchanged) ----------
 async function loadHistory() {
   try {
     const res = await fetch(SERVER_URL + '/api/history');
@@ -223,7 +268,7 @@ async function loadHistory() {
   } catch(e) { console.error('History error:', e); }
 }
 
-// ---------- STATS ----------
+// ---------- ALL STATS (unchanged) ----------
 async function loadStats() {
   try {
     const [statsRes, historyRes] = await Promise.all([
@@ -290,12 +335,51 @@ async function loadStats() {
   } catch(e) { console.error('Stats error:', e); }
 }
 
+// ---------- 1H/4H STATS (NEW) ----------
+async function load1h4hStats() {
+  try {
+    const [statsRes, alignRes, pairRes] = await Promise.all([
+      fetch(SERVER_URL + '/api/stats/1h4h'),
+      fetch(SERVER_URL + '/api/stats/alignment'),
+      fetch(SERVER_URL + '/api/stats/pairs')
+    ]);
+    const stats = await statsRes.json();
+    const alignment = await alignRes.json();
+    const pairs = await pairRes.json();
+
+    let html = `
+      <p>Total closed 1h/4h trades: ${stats.total}</p>
+      <p>Wins: ${stats.wins}</p>
+      <p>Win rate: ${stats.winRate}%</p>
+      <h3>Win rate by alignment (1h/4h)</h3>
+      <table class="stats-table">
+        <tr><th>Alignment</th><th>Wins</th><th>Total</th><th>Win Rate</th></tr>`;
+    for (const [key, val] of Object.entries(alignment).sort()) {
+      html += `<tr><td>${key}</td><td>${val.wins}</td><td>${val.total}</td><td>${val.winRate}%</td></tr>`;
+    }
+    html += `</table>
+      <h3>Win rate by pair (1h/4h)</h3>
+      <table class="stats-table">
+        <tr><th>Pair</th><th>Wins</th><th>Total</th><th>Win Rate</th></tr>`;
+    for (const [pair, val] of Object.entries(pairs).sort()) {
+      html += `<tr><td>${pair}</td><td>${val.wins}</td><td>${val.total}</td><td>${val.winRate}%</td></tr>`;
+    }
+    html += '</table>';
+    document.getElementById('stats1h4hContent').innerHTML = html;
+  } catch(e) {
+    console.error('1h/4h stats error:', e);
+    document.getElementById('stats1h4hContent').innerHTML = 'Failed to load stats.';
+  }
+}
+
+// ---------- MEME COINS (unchanged) ----------
 function renderMemeCoins() {
   document.getElementById('memeList').innerHTML = memeCoins.map(c =>
     `<div class="meme-item">${c.name} (${c.symbol}) - $${c.price.toFixed(6)} | Prob: ${c.probability}%</div>`
   ).join('');
 }
 
+// ---------- CHART (unchanged) ----------
 async function openChart(symbol) {
   document.getElementById('chartModal').style.display = 'block';
   try {
@@ -320,6 +404,7 @@ document.querySelector('.close')?.addEventListener('click', () => {
   document.getElementById('chartModal').style.display = 'none';
 });
 
+// ---------- AUTO TRADE TOGGLE (unchanged) ----------
 document.getElementById('autoTradeToggle')?.addEventListener('change', async (e) => {
   await fetch(SERVER_URL + '/api/autotrade', {
     method: 'POST',
@@ -328,6 +413,7 @@ document.getElementById('autoTradeToggle')?.addEventListener('change', async (e)
   });
 });
 
+// ---------- INITIAL FETCH (unchanged) ----------
 fetch(SERVER_URL + '/api/signals')
   .then(r => r.json())
   .then(data => {
