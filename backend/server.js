@@ -498,7 +498,7 @@ async function sendEmailNotifications(signals) {
 
   try {
     await axios.post('https://api.brevo.com/v3/smtp/email', {
-      sender: { name: 'Crypto Signals', email: process.env.ALERT_EMAIL },
+      sender: { name: 'Crypto Signals', email: process.env.FROM_EMAIL || process.env.ALERT_EMAIL },
       to: [{ email: process.env.ALERT_EMAIL }],
       subject: `🔔 ${highConf.length} new signal(s)`,
       htmlContent: html
