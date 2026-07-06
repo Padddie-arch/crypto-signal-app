@@ -331,7 +331,7 @@ function dynamicStopLoss(candles, direction, currentPrice, currentATR) {
   }
 }
 
-// ========== SIGNAL GENERATION ==========
+// ========== SIGNAL GENERATION (with relaxed ADX & min strategies) ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
@@ -357,13 +357,15 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
+  // RELAXED ADX thresholds
   let baseADX;
-  if (interval === '4h') baseADX = 22;
-  else if (interval === '1h') baseADX = 18;
+  if (interval === '4h') baseADX = 20;      // was 22
+  else if (interval === '1h') baseADX = 15; // was 18
   else if (interval === '15m') baseADX = 12;
   else if (interval === '5m') baseADX = 10;
 
-  const baseMinActive = is4h ? 4 : (is1h ? 3 : 2);
+  // RELAXED minimum strategies
+  const baseMinActive = is4h ? 3 : (is1h ? 2 : 2);   // 4h: 3 (was 4), 1h: 2 (was 3)
 
   const rsiOversold = isShortTF ? 20 : 25;
   const rsiOverbought = isShortTF ? 80 : 75;
@@ -428,6 +430,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
+  // Last candle confirmation (kept for 1h/4h)
   if (!isShortTF) {
     const lastCandle = candles[candles.length - 1];
     if (direction === 'BUY' && lastCandle.close <= lastCandle.open) return null;
@@ -580,33 +583,6 @@ async function tick() {
 
 setTimeout(tick, 10000);
 setInterval(tick, 10 * 60 * 1000);
-
-// TEMPORARY – test email (remove after testing)
-app.get('/api/test-email', async (req, res) => {
-  try {
-    const apiKey = process.env.BREVO_API_KEY;
-    const alertEmail = process.env.ALERT_EMAIL;
-
-    if (!apiKey || !alertEmail) {
-      return res.json({ error: 'Missing BREVO_API_KEY or ALERT_EMAIL in environment variables' });
-    }
-
-    // Send a test email
-    await axios.post('https://api.brevo.com/v3/smtp/email', {
-      sender: { name: 'Crypto Signals', email: alertEmail },
-      to: [{ email: alertEmail }],
-      subject: 'Test email from Crypto Signals',
-      htmlContent: '<p>If you receive this, Brevo is working correctly!</p>'
-    }, {
-      headers: { 'api-key': apiKey, 'Content-Type': 'application/json' }
-    });
-
-    res.json({ success: true, message: 'Test email sent. Check your inbox.' });
-  } catch (err) {
-    console.error('Test email failed:', err.response?.data || err.message);
-    res.json({ error: err.response?.data || err.message });
-  }
-});
 
 // ========== ROUTES ==========
 app.get('/api/signals', (req, res) => res.json(latestSignals));
