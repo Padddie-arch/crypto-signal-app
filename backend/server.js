@@ -374,13 +374,15 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
-  // ---- ADX THRESHOLDS (per timeframe) ----
+  // ---- ADX THRESHOLDS (per timeframe) – tightened for 1h/4h ----
   let baseADX;
-  if (interval === '4h') baseADX = 20;
-  else if (interval === '1h') baseADX = 15;
+  if (interval === '4h') baseADX = 22;      // was 20
+  else if (interval === '1h') baseADX = 18; // was 15
   else if (interval === '15m') baseADX = 12;
   else if (interval === '5m') baseADX = 10;
-  const baseMinActive = is4h ? 3 : 2;
+
+  // ---- MINIMUM ACTIVE STRATEGIES – raised for 1h/4h ----
+  const baseMinActive = is4h ? 4 : (is1h ? 3 : 2);   // 4h:4, 1h:3, short:2
 
   // ---- INDICATOR VOTE THRESHOLDS (wider for short TFs) ----
   const rsiOversold = isShortTF ? 20 : 25;
@@ -450,6 +452,13 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
+  // ---- LAST CANDLE MOMENTUM CONFIRMATION (1h & 4h only) ----
+  if (!isShortTF) {   // i.e., 1h or 4h
+    const lastCandle = candles[candles.length - 1];
+    if (direction === 'BUY' && lastCandle.close <= lastCandle.open) return null;
+    if (direction === 'SELL' && lastCandle.close >= lastCandle.open) return null;
+  }
+
   // ---- COOLDOWN ----
   const cooldownKey = `${pair.symbol}_${interval}`;
   const lastFire = cooldown[cooldownKey] || 0;
@@ -516,22 +525,25 @@ async function updateTradeOutcomes() {
   }
 }
 
-// ========== PUSH NOTIFICATIONS ==========
+// ========== PUSH NOTIFICATIONS (now for 1h/4h with ≥6/12) ==========
 async function sendPushNotifications(signals) {
   const appId = process.env.ONESIGNAL_APP_ID;
   const apiKey = process.env.ONESIGNAL_REST_API_KEY;
   if (!appId || !apiKey) return;
 
-  const highAlign = signals.filter(s => s.aligned >= 8);
-  if (highAlign.length === 0) return;
+  // Only notify for 1h/4h signals with alignment ≥ 6/12
+  const highConf = signals.filter(s => 
+    (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 6
+  );
+  if (highConf.length === 0) return;
 
-  const top = highAlign.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/12)`).join(', ');
+  const top = highConf.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/12)`).join(', ');
   try {
     await axios.post('https://onesignal.com/api/v1/notifications', {
       app_id: appId,
       included_segments: ['All'],
-      contents: { en: `🔥 ${highAlign.length} strong signal(s): ${top}` },
-      headings: { en: 'High‑Confidence Alert' }
+      contents: { en: `🔔 ${highConf.length} reliable signal(s): ${top}` },
+      headings: { en: 'New 1h/4h Signal (6/12+)' }
     }, {
       headers: { Authorization: `Basic ${apiKey}` }
     });
