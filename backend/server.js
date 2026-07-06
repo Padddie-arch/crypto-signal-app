@@ -646,7 +646,7 @@ app.get('/api/test-email', async (req, res) => {
     if (!apiKey || !alertEmail) return res.json({ error: 'Missing MAILERSEND_API_KEY or ALERT_EMAIL' });
 
     await axios.post('https://api.mailersend.com/v1/email', {
-      from: { email: alertEmail, name: 'Crypto Signals' },
+      from: { email: process.env.FROM_EMAIL, name: 'Crypto Signals' },
       to: [{ email: alertEmail }],
       subject: 'Test email from Crypto Signals',
       html: '<p>If you receive this, MailerSend is working!</p>'
