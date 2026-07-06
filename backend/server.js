@@ -498,7 +498,7 @@ async function sendEmailNotifications(signals) {
 
   try {
     await axios.post('https://api.mailersend.com/v1/email', {
-      from: { email: process.env.ALERT_EMAIL, name: 'Crypto Signals' },
+      from: { email: process.env.FROM_EMAIL, name: 'Crypto Signals' },
       to: [{ email: process.env.ALERT_EMAIL }],
       subject: `🔔 ${highConf.length} new signal(s)`,
       html: html
