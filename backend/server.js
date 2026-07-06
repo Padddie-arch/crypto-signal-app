@@ -485,9 +485,9 @@ async function updateTradeOutcomes() {
   }
 }
 
-// ========== EMAIL NOTIFICATIONS (Brevo) ==========
+// ========== EMAIL NOTIFICATIONS (MailerSend) ==========
 async function sendEmailNotifications(signals) {
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = process.env.MAILERSEND_API_KEY;
   if (!apiKey) return;
 
   const highConf = signals.filter(s => (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 3);
@@ -497,13 +497,15 @@ async function sendEmailNotifications(signals) {
   const html = `<h3>New 1h/4h Signals</h3><p>${top}</p><p>Check your app for details.</p>`;
 
   try {
-    await axios.post('https://api.brevo.com/v3/smtp/email', {
-      sender: { name: 'Crypto Signals', email: process.env.FROM_EMAIL || process.env.ALERT_EMAIL },
+    await axios.post('https://api.mailersend.com/v1/email', {
+      from: { email: process.env.ALERT_EMAIL, name: 'Crypto Signals' },
       to: [{ email: process.env.ALERT_EMAIL }],
       subject: `🔔 ${highConf.length} new signal(s)`,
-      htmlContent: html
-    }, { headers: { 'api-key': apiKey, 'Content-Type': 'application/json' } });
-    console.log('✅ Email sent via Brevo');
+      html: html
+    }, {
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+    });
+    console.log('✅ Email sent via MailerSend');
   } catch (err) {
     console.error('❌ Email failed:', err.response?.data || err.message);
   }
@@ -635,6 +637,29 @@ app.get('/api/prices', async (req, res) => {
   }
   res.json(prices);
 });
+
+// ========== TEMPORARY TEST EMAIL ROUTE ==========
+app.get('/api/test-email', async (req, res) => {
+  try {
+    const apiKey = process.env.MAILERSEND_API_KEY;
+    const alertEmail = process.env.ALERT_EMAIL;
+    if (!apiKey || !alertEmail) return res.json({ error: 'Missing MAILERSEND_API_KEY or ALERT_EMAIL' });
+
+    await axios.post('https://api.mailersend.com/v1/email', {
+      from: { email: alertEmail, name: 'Crypto Signals' },
+      to: [{ email: alertEmail }],
+      subject: 'Test email from Crypto Signals',
+      html: '<p>If you receive this, MailerSend is working!</p>'
+    }, {
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+    });
+
+    res.json({ success: true, message: 'Test email sent. Check your inbox.' });
+  } catch (err) {
+    res.json({ error: err.response?.data || err.message });
+  }
+});
+
 app.post('/api/autotrade', (req, res) => res.json({ success: true }));
 
 io.on('connection', (socket) => { socket.emit('new_signals', latestSignals); });
