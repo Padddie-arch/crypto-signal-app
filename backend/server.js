@@ -581,6 +581,33 @@ async function tick() {
 setTimeout(tick, 10000);
 setInterval(tick, 10 * 60 * 1000);
 
+// TEMPORARY – test email (remove after testing)
+app.get('/api/test-email', async (req, res) => {
+  try {
+    const apiKey = process.env.BREVO_API_KEY;
+    const alertEmail = process.env.ALERT_EMAIL;
+
+    if (!apiKey || !alertEmail) {
+      return res.json({ error: 'Missing BREVO_API_KEY or ALERT_EMAIL in environment variables' });
+    }
+
+    // Send a test email
+    await axios.post('https://api.brevo.com/v3/smtp/email', {
+      sender: { name: 'Crypto Signals', email: alertEmail },
+      to: [{ email: alertEmail }],
+      subject: 'Test email from Crypto Signals',
+      htmlContent: '<p>If you receive this, Brevo is working correctly!</p>'
+    }, {
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json' }
+    });
+
+    res.json({ success: true, message: 'Test email sent. Check your inbox.' });
+  } catch (err) {
+    console.error('Test email failed:', err.response?.data || err.message);
+    res.json({ error: err.response?.data || err.message });
+  }
+});
+
 // ========== ROUTES ==========
 app.get('/api/signals', (req, res) => res.json(latestSignals));
 app.get('/api/history', (req, res) => res.json(signalHistory));
