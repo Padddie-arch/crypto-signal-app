@@ -331,7 +331,7 @@ function dynamicStopLoss(candles, direction, currentPrice, currentATR) {
   }
 }
 
-// ========== SIGNAL GENERATION (with relaxed ADX & min strategies) ==========
+// ========== SIGNAL GENERATION ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
@@ -343,9 +343,11 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const is1h = (interval === '1h');
   const isShortTF = (interval === '5m' || interval === '15m');
 
+  // ---- VOLATILITY FILTER ----
   const atrThreshold = isShortTF ? 0.003 : 0.005;
   if (currentATR / currentPrice < atrThreshold) return null;
 
+  // ---- VOLUME FILTER ----
   const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
   const lastVolume = volumes[volumes.length - 1];
   if (lastVolume < avgVolume20) return null;
@@ -354,19 +356,24 @@ async function generateSignal(pair, candles, interval, livePrice) {
     if (lastVolume <= prevVolume) return null;
   }
 
+  // ---- NEWS ----
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
-  // RELAXED ADX thresholds
-  let baseADX;
-  if (interval === '4h') baseADX = 20;      // was 22
-  else if (interval === '1h') baseADX = 15; // was 18
-  else if (interval === '15m') baseADX = 12;
-  else if (interval === '5m') baseADX = 10;
+  // ---- STRICT ADX & MIN STRATEGIES (for 1h/4h) ----
+  let baseADX, baseMinActive;
+  if (is4h) {
+    baseADX = 22;        // strong trend required
+    baseMinActive = 4;   // need at least 4 strategies agreeing
+  } else if (is1h) {
+    baseADX = 18;
+    baseMinActive = 3;
+  } else {               // 5m/15m (keep loose for heartbeat)
+    baseADX = interval === '15m' ? 12 : 10;
+    baseMinActive = 2;
+  }
 
-  // RELAXED minimum strategies
-  const baseMinActive = is4h ? 3 : (is1h ? 2 : 2);   // 4h: 3 (was 4), 1h: 2 (was 3)
-
+  // ---- INDICATOR THRESHOLDS (unchanged) ----
   const rsiOversold = isShortTF ? 20 : 25;
   const rsiOverbought = isShortTF ? 80 : 75;
   const stochOversold = isShortTF ? 10 : 15;
@@ -374,6 +381,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const bollOversold = isShortTF ? 0.1 : 0.15;
   const bollOverbought = isShortTF ? 0.9 : 0.85;
 
+  // ---- INDICATORS ----
   const rsiVals = rsiArr(closes, 14);
   const lastRSI = rsiVals[rsiVals.length - 1];
   const macdRes = (() => {
@@ -391,6 +399,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const div = rsiDivergence(candles, 14);
   const vwapVal = vwap(candles);
 
+  // ---- 12 VOTES ----
   let rsiVote = 0, macdVote = 0, emaVote = 0, adxVote = 0, volVote = 0, stochVote = 0,
       ichiVote = 0, bollVote = 0, aroonVote = 0, candleVote = 0, divVote = 0;
 
@@ -419,30 +428,44 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
+  // ---- TREND ALIGNMENT (50‑EMA slope) ----
   const ema50 = ema(closes, 50);
   const recentEma50 = ema50.slice(-5);
   const slope50 = recentEma50[4] - recentEma50[0];
   const trendDir = slope50 > 0 ? 'up' : slope50 < 0 ? 'down' : 'flat';
   if (direction === 'BUY' && trendDir === 'down') return null;
   if (direction === 'SELL' && trendDir === 'up') return null;
-  if (is4h && trendDir === 'flat') return null;
+  if (is4h && trendDir === 'flat') return null;   // 4h must have a clear trend
 
+  // ---- VWAP FILTER ----
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
-  // Last candle confirmation (kept for 1h/4h)
+  // ---- LAST CANDLE CONFIRMATION (1h/4h) ----
   if (!isShortTF) {
     const lastCandle = candles[candles.length - 1];
     if (direction === 'BUY' && lastCandle.close <= lastCandle.open) return null;
     if (direction === 'SELL' && lastCandle.close >= lastCandle.open) return null;
   }
 
+  // ---- ADX RISING (4h only) ----
+  if (is4h && adxRes.adx <= adxRes.adxPrev) return null;
+
+  // ---- PRICE PROXIMITY TO 20 EMA (4h only) ----
+  if (is4h) {
+    const ema20 = ema(closes, 20);
+    const dist = Math.abs(currentPrice - ema20[ema20.length - 1]);
+    if (dist > currentATR * 2.0) return null;
+  }
+
+  // ---- COOLDOWN ----
   const cooldownKey = `${pair.symbol}_${interval}`;
   const lastFire = cooldown[cooldownKey] || 0;
   const candleMs = interval === '1h' ? 3600000 : interval === '4h' ? 14400000 : interval === '15m' ? 900000 : 300000;
   if (Date.now() - lastFire < candleMs) return null;
   cooldown[cooldownKey] = Date.now();
 
+  // ---- STOP LOSS & TAKE PROFIT (dynamic) ----
   const stopLoss = dynamicStopLoss(candles, direction, currentPrice, currentATR);
   const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3.0 : currentPrice - currentATR * 3.0;
   const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
@@ -490,34 +513,32 @@ async function sendEmailNotifications(signals) {
   const apiKey = process.env.MAILERSEND_API_KEY;
   if (!apiKey) return;
 
-  const highConf = signals.filter(s => (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 3);
+  const highConf = signals.filter(s => (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 6);
   if (highConf.length === 0) return;
 
   const top = highConf.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/12)`).join(', ');
-  const html = `<h3>New 1h/4h Signals</h3><p>${top}</p><p>Check your app for details.</p>`;
+  const html = `<h3>High‑Confidence 1h/4h Signals</h3><p>${top}</p><p>Check your app for details.</p>`;
 
   try {
     await axios.post('https://api.mailersend.com/v1/email', {
       from: { email: process.env.FROM_EMAIL, name: 'Crypto Signals' },
       to: [{ email: process.env.ALERT_EMAIL }],
-      subject: `🔔 ${highConf.length} new signal(s)`,
+      subject: `🔔 ${highConf.length} strong signal(s)`,
       html: html
-    }, {
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    });
+    }, { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } });
     console.log('✅ Email sent via MailerSend');
   } catch (err) {
     console.error('❌ Email failed:', err.response?.data || err.message);
   }
 }
 
-// ========== PUSH NOTIFICATIONS (lowered threshold for testing) ==========
+// ========== PUSH NOTIFICATIONS (only for strong 1h/4h) ==========
 async function sendPushNotifications(signals) {
   const appId = process.env.ONESIGNAL_APP_ID;
   const apiKey = process.env.ONESIGNAL_REST_API_KEY;
   if (!appId || !apiKey) return;
 
-  const highConf = signals.filter(s => (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 3);
+  const highConf = signals.filter(s => (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 6);
   if (highConf.length === 0) return;
 
   const top = highConf.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/12)`).join(', ');
@@ -525,8 +546,8 @@ async function sendPushNotifications(signals) {
     await axios.post('https://onesignal.com/api/v1/notifications', {
       app_id: appId,
       included_segments: ['All'],
-      contents: { en: `🔔 ${highConf.length} signal(s): ${top}` },
-      headings: { en: 'New 1h/4h Signal' }
+      contents: { en: `🔔 Strong signal(s): ${top}` },
+      headings: { en: 'High‑Confidence Alert' }
     }, { headers: { Authorization: `Basic ${apiKey}` } });
     console.log('✅ Push notification sent');
   } catch (err) { console.error('❌ Push failed:', err.response?.data || err.message); }
@@ -637,29 +658,6 @@ app.get('/api/prices', async (req, res) => {
   }
   res.json(prices);
 });
-
-// ========== TEMPORARY TEST EMAIL ROUTE ==========
-app.get('/api/test-email', async (req, res) => {
-  try {
-    const apiKey = process.env.MAILERSEND_API_KEY;
-    const alertEmail = process.env.ALERT_EMAIL;
-    if (!apiKey || !alertEmail) return res.json({ error: 'Missing MAILERSEND_API_KEY or ALERT_EMAIL' });
-
-    await axios.post('https://api.mailersend.com/v1/email', {
-      from: { email: process.env.FROM_EMAIL, name: 'Crypto Signals' },
-      to: [{ email: alertEmail }],
-      subject: 'Test email from Crypto Signals',
-      html: '<p>If you receive this, MailerSend is working!</p>'
-    }, {
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    });
-
-    res.json({ success: true, message: 'Test email sent. Check your inbox.' });
-  } catch (err) {
-    res.json({ error: err.response?.data || err.message });
-  }
-});
-
 app.post('/api/autotrade', (req, res) => res.json({ success: true }));
 
 io.on('connection', (socket) => { socket.emit('new_signals', latestSignals); });
