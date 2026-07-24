@@ -602,11 +602,14 @@ setInterval(tick, 10 * 60 * 1000);
 // ========== ROUTES ==========
 app.get('/api/signals', (req, res) => res.json(latestSignals));
 app.get('/api/history', (req, res) => res.json(signalHistory));
+
+// ===== UPDATED: All Stats now only counts 1h/4h signals =====
 app.get('/api/stats', (req, res) => {
-  const closed = signalHistory.filter(t => t.outcome);
+  const closed = signalHistory.filter(t => t.outcome && (t.timeframe === '1h' || t.timeframe === '4h'));
   const wins = closed.filter(t => t.outcome === 'win').length;
   res.json({ wins, total: closed.length, winRate: closed.length ? ((wins / closed.length) * 100).toFixed(1) : 0 });
 });
+
 app.get('/api/stats/1h4h', (req, res) => {
   const closed = signalHistory.filter(t => t.outcome && (t.timeframe === '1h' || t.timeframe === '4h'));
   const wins = closed.filter(t => t.outcome === 'win').length;
