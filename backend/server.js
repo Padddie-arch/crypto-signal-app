@@ -331,7 +331,7 @@ function dynamicStopLoss(candles, direction, currentPrice, currentATR) {
   }
 }
 
-// ========== SIGNAL GENERATION (EXTRA STRICT 1H/4H) ==========
+// ========== SIGNAL GENERATION (ULTRA‑STRICT FOR 1H/4H) ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
@@ -343,9 +343,11 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const is1h = (interval === '1h');
   const isShortTF = (interval === '5m' || interval === '15m');
 
+  // ---- VOLATILITY FILTER ----
   const atrThreshold = isShortTF ? 0.003 : 0.005;
   if (currentATR / currentPrice < atrThreshold) return null;
 
+  // ---- VOLUME FILTER (above average, rising for 1h/4h) ----
   const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
   const lastVolume = volumes[volumes.length - 1];
   if (lastVolume < avgVolume20) return null;
@@ -354,20 +356,21 @@ async function generateSignal(pair, candles, interval, livePrice) {
     if (lastVolume <= prevVolume) return null;
   }
 
+  // ---- NEWS ----
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
-  // ---- EXTRA STRICT PARAMETERS FOR 1H/4H ----
+  // ---- STRICT PARAMETERS ----
   let baseADX, baseMinActive, minAligned;
   if (is4h) {
-    baseADX = 22;
-    baseMinActive = 4;
-    minAligned = 7;          // at least 7 strategies must agree
+    baseADX = 22;           // very strong trend required
+    baseMinActive = 5;      // at least 5 strategies must be active
+    minAligned = 7;         // at least 7 strategies must agree
   } else if (is1h) {
     baseADX = 18;
-    baseMinActive = 3;
-    minAligned = 6;          // at least 6 strategies must agree
-  } else {
+    baseMinActive = 4;
+    minAligned = 6;
+  } else {                  // 5m/15m remain loose (heartbeat)
     baseADX = interval === '15m' ? 12 : 10;
     baseMinActive = 2;
     minAligned = 1;
@@ -436,7 +439,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (direction === 'SELL' && trendDir === 'up') return null;
   if (is4h && trendDir === 'flat') return null;
 
-  // ---- 200 EMA FILTER (NEW: trade only with long‑term trend) ----
+  // ---- 200 EMA FILTER (only trade with long‑term trend) ----
   if (!isShortTF) {
     const ema200 = ema(closes, 200);
     const ema200Now = ema200[ema200.length - 1];
@@ -455,10 +458,10 @@ async function generateSignal(pair, candles, interval, livePrice) {
     if (direction === 'SELL' && lastCandle.close >= lastCandle.open) return null;
   }
 
-  // ---- ADX RISING (NOW FOR BOTH 1H AND 4H) ----
+  // ---- ADX RISING (both 1h and 4h) ----
   if (!isShortTF && adxRes.adx <= adxRes.adxPrev) return null;
 
-  // ---- PRICE NEAR 20 EMA (NOW FOR BOTH 1H AND 4H) ----
+  // ---- PRICE NEAR 20 EMA (both 1h and 4h) ----
   if (!isShortTF) {
     const ema20 = ema(closes, 20);
     const dist = Math.abs(currentPrice - ema20[ema20.length - 1]);
@@ -618,14 +621,14 @@ setInterval(tick, 10 * 60 * 1000);
 app.get('/api/signals', (req, res) => res.json(latestSignals));
 app.get('/api/history', (req, res) => res.json(signalHistory));
 
-// ---- ALL STATS: counts ALL closed trades (all timeframes) ----
+// All Stats – counts every timeframe
 app.get('/api/stats', (req, res) => {
   const closed = signalHistory.filter(t => t.outcome);
   const wins = closed.filter(t => t.outcome === 'win').length;
   res.json({ wins, total: closed.length, winRate: closed.length ? ((wins / closed.length) * 100).toFixed(1) : 0 });
 });
 
-// ---- 1H/4H STATS: only those timeframes ----
+// 1h/4h Stats – only traded timeframes
 app.get('/api/stats/1h4h', (req, res) => {
   const closed = signalHistory.filter(t => t.outcome && (t.timeframe === '1h' || t.timeframe === '4h'));
   const wins = closed.filter(t => t.outcome === 'win').length;
