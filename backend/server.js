@@ -24,11 +24,11 @@ const RSS_FEEDS = [
   'https://www.coindesk.com/arc/outboundfeeds/rss/'
 ];
 
+// ❌ Removed consistently losing pairs: ADA, APT, BNB, BTC, DOGE, ETH, LINK, LTC, SHIB, SOL, SUI, UNI, XLM, XRP
+// ✅ Kept only pairs with historical wins or neutral (AVAX, ZEC, CAKE? We'll keep a few for diversity but can be adjusted later)
 const PAIRS = [
-  'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT',
-  'ADAUSDT','DOGEUSDT','XLMUSDT','LINKUSDT','LTCUSDT',
-  'SUIUSDT','POLUSDT','NEARUSDT','UNIUSDT','TAOUSDT',
-  'SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT','AVAXUSDT','TRXUSDT'
+  'AVAXUSDT'   // only pair that has shown wins (33%)
+  // You can add back more pairs once win rate improves
 ].map(symbol => ({ symbol, name: symbol.replace('USDT', '/USD') }));
 
 const TIMEFRAMES = ['1h', '4h', '5m', '15m'];
@@ -100,27 +100,7 @@ async function fetchCandles(symbol, interval, minCandlesParam) {
 
 // ========== RSS NEWS FETCHER ==========
 const coinAliases = {
-  BTC: ['BTC', 'Bitcoin', 'XBT'],
-  ETH: ['ETH', 'Ethereum'],
-  SOL: ['SOL', 'Solana'],
-  BNB: ['BNB', 'Binance Coin'],
-  XRP: ['XRP', 'Ripple'],
-  ADA: ['ADA', 'Cardano'],
-  DOGE: ['DOGE', 'Dogecoin'],
-  XLM: ['XLM', 'Stellar'],
-  LINK: ['LINK', 'Chainlink'],
-  LTC: ['LTC', 'Litecoin'],
-  SUI: ['SUI'],
-  POL: ['POL', 'Polygon'],
-  NEAR: ['NEAR'],
-  UNI: ['UNI', 'Uniswap'],
-  TAO: ['TAO', 'Bittensor'],
-  SHIB: ['SHIB', 'Shiba Inu'],
-  APT: ['APT', 'Aptos'],
-  ZEC: ['ZEC', 'Zcash'],
-  CAKE: ['CAKE', 'PancakeSwap'],
-  AVAX: ['AVAX', 'Avalanche'],
-  TRX: ['TRX', 'TRON']
+  AVAX: ['AVAX', 'Avalanche']
 };
 const positiveWords = ['surge','rally','bull','buy','gain','rise','high','green','up','record','jump'];
 const negativeWords = ['crash','drop','bear','sell','loss','fall','low','red','down','plunge','decline'];
@@ -331,7 +311,7 @@ function dynamicStopLoss(candles, direction, currentPrice, currentATR) {
   }
 }
 
-// ========== SIGNAL GENERATION (ULTRA‑STRICT FOR 1H/4H) ==========
+// ========== SIGNAL GENERATION (EXTREME STRICTNESS FOR 1H/4H) ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
@@ -357,16 +337,16 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
-  // ---- ULTRA‑STRICT PARAMETERS FOR 1H/4H ----
+  // ---- RAISED MINIMUM ALIGNMENT ----
   let baseADX, baseMinActive, minAligned;
   if (is4h) {
     baseADX = 22;
     baseMinActive = 4;
-    minAligned = 6;          // at least 6 strategies must agree
+    minAligned = 7;          // require 7/12 agreement (was 6)
   } else if (is1h) {
     baseADX = 18;
     baseMinActive = 3;
-    minAligned = 5;          // at least 5 strategies must agree
+    minAligned = 6;          // require 6/12 agreement (was 5)
   } else {
     baseADX = interval === '15m' ? 12 : 10;
     baseMinActive = 2;
@@ -500,9 +480,9 @@ async function updateTradeOutcomes() {
   }
 }
 
-// ========== EMAIL NOTIFICATIONS (only for ≥6/12 on 1h/4h) ==========
+// ========== EMAIL NOTIFICATIONS (Brevo) ==========
 async function sendEmailNotifications(signals) {
-  const apiKey = process.env.MAILERSEND_API_KEY;
+  const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return;
 
   const highConf = signals.filter(s => (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 6);
@@ -512,12 +492,12 @@ async function sendEmailNotifications(signals) {
   const html = `<h3>Strong 1h/4h Signals</h3><p>${top}</p><p>Check your app.</p>`;
 
   try {
-    await axios.post('https://api.mailersend.com/v1/email', {
-      from: { email: process.env.FROM_EMAIL, name: 'Crypto Signals' },
+    await axios.post('https://api.brevo.com/v3/smtp/email', {
+      sender: { name: 'Crypto Signals', email: process.env.FROM_EMAIL },
       to: [{ email: process.env.ALERT_EMAIL }],
       subject: `🔔 ${highConf.length} strong signal(s)`,
-      html: html
-    }, { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } });
+      htmlContent: html
+    }, { headers: { 'api-key': apiKey, 'Content-Type': 'application/json' } });
     console.log('✅ Email sent');
   } catch (err) {
     console.error('❌ Email failed:', err.response?.data || err.message);
@@ -603,9 +583,9 @@ setInterval(tick, 10 * 60 * 1000);
 app.get('/api/signals', (req, res) => res.json(latestSignals));
 app.get('/api/history', (req, res) => res.json(signalHistory));
 
-// ===== UPDATED: All Stats now only counts 1h/4h signals =====
+// All Stats – now shows ALL closed trades (including 5m/15m)
 app.get('/api/stats', (req, res) => {
-  const closed = signalHistory.filter(t => t.outcome && (t.timeframe === '1h' || t.timeframe === '4h'));
+  const closed = signalHistory.filter(t => t.outcome);
   const wins = closed.filter(t => t.outcome === 'win').length;
   res.json({ wins, total: closed.length, winRate: closed.length ? ((wins / closed.length) * 100).toFixed(1) : 0 });
 });
