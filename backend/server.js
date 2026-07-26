@@ -24,11 +24,11 @@ const RSS_FEEDS = [
   'https://www.coindesk.com/arc/outboundfeeds/rss/'
 ];
 
-// ❌ Removed consistently losing pairs: ADA, APT, BNB, BTC, DOGE, ETH, LINK, LTC, SHIB, SOL, SUI, UNI, XLM, XRP
-// ✅ Kept only pairs with historical wins or neutral (AVAX, ZEC, CAKE? We'll keep a few for diversity but can be adjusted later)
 const PAIRS = [
-  'AVAXUSDT'   // only pair that has shown wins (33%)
-  // You can add back more pairs once win rate improves
+  'BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT',
+  'ADAUSDT','DOGEUSDT','XLMUSDT','LINKUSDT','LTCUSDT',
+  'SUIUSDT','POLUSDT','NEARUSDT','UNIUSDT','TAOUSDT',
+  'SHIBUSDT','APTUSDT','ZECUSDT','CAKEUSDT','AVAXUSDT','TRXUSDT'
 ].map(symbol => ({ symbol, name: symbol.replace('USDT', '/USD') }));
 
 const TIMEFRAMES = ['1h', '4h', '5m', '15m'];
@@ -100,7 +100,27 @@ async function fetchCandles(symbol, interval, minCandlesParam) {
 
 // ========== RSS NEWS FETCHER ==========
 const coinAliases = {
-  AVAX: ['AVAX', 'Avalanche']
+  BTC: ['BTC', 'Bitcoin', 'XBT'],
+  ETH: ['ETH', 'Ethereum'],
+  SOL: ['SOL', 'Solana'],
+  BNB: ['BNB', 'Binance Coin'],
+  XRP: ['XRP', 'Ripple'],
+  ADA: ['ADA', 'Cardano'],
+  DOGE: ['DOGE', 'Dogecoin'],
+  XLM: ['XLM', 'Stellar'],
+  LINK: ['LINK', 'Chainlink'],
+  LTC: ['LTC', 'Litecoin'],
+  SUI: ['SUI'],
+  POL: ['POL', 'Polygon'],
+  NEAR: ['NEAR'],
+  UNI: ['UNI', 'Uniswap'],
+  TAO: ['TAO', 'Bittensor'],
+  SHIB: ['SHIB', 'Shiba Inu'],
+  APT: ['APT', 'Aptos'],
+  ZEC: ['ZEC', 'Zcash'],
+  CAKE: ['CAKE', 'PancakeSwap'],
+  AVAX: ['AVAX', 'Avalanche'],
+  TRX: ['TRX', 'TRON']
 };
 const positiveWords = ['surge','rally','bull','buy','gain','rise','high','green','up','record','jump'];
 const negativeWords = ['crash','drop','bear','sell','loss','fall','low','red','down','plunge','decline'];
@@ -311,7 +331,7 @@ function dynamicStopLoss(candles, direction, currentPrice, currentATR) {
   }
 }
 
-// ========== SIGNAL GENERATION (EXTREME STRICTNESS FOR 1H/4H) ==========
+// ========== SIGNAL GENERATION (EXTRA STRICT 1H/4H) ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
@@ -337,16 +357,16 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
-  // ---- RAISED MINIMUM ALIGNMENT ----
+  // ---- EXTRA STRICT PARAMETERS FOR 1H/4H ----
   let baseADX, baseMinActive, minAligned;
   if (is4h) {
     baseADX = 22;
     baseMinActive = 4;
-    minAligned = 7;          // require 7/12 agreement (was 6)
+    minAligned = 7;          // at least 7 strategies must agree
   } else if (is1h) {
     baseADX = 18;
     baseMinActive = 3;
-    minAligned = 6;          // require 6/12 agreement (was 5)
+    minAligned = 6;          // at least 6 strategies must agree
   } else {
     baseADX = interval === '15m' ? 12 : 10;
     baseMinActive = 2;
@@ -407,6 +427,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
+  // ---- TREND ALIGNMENT (50 EMA) ----
   const ema50 = ema(closes, 50);
   const recentEma50 = ema50.slice(-5);
   const slope50 = recentEma50[4] - recentEma50[0];
@@ -415,23 +436,36 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (direction === 'SELL' && trendDir === 'up') return null;
   if (is4h && trendDir === 'flat') return null;
 
+  // ---- 200 EMA FILTER (NEW: trade only with long‑term trend) ----
+  if (!isShortTF) {
+    const ema200 = ema(closes, 200);
+    const ema200Now = ema200[ema200.length - 1];
+    if (direction === 'BUY' && currentPrice <= ema200Now) return null;
+    if (direction === 'SELL' && currentPrice >= ema200Now) return null;
+  }
+
+  // ---- VWAP ----
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
+  // ---- LAST CANDLE CONFIRMATION (1h/4h) ----
   if (!isShortTF) {
     const lastCandle = candles[candles.length - 1];
     if (direction === 'BUY' && lastCandle.close <= lastCandle.open) return null;
     if (direction === 'SELL' && lastCandle.close >= lastCandle.open) return null;
   }
 
-  if (is4h && adxRes.adx <= adxRes.adxPrev) return null;
+  // ---- ADX RISING (NOW FOR BOTH 1H AND 4H) ----
+  if (!isShortTF && adxRes.adx <= adxRes.adxPrev) return null;
 
-  if (is4h) {
+  // ---- PRICE NEAR 20 EMA (NOW FOR BOTH 1H AND 4H) ----
+  if (!isShortTF) {
     const ema20 = ema(closes, 20);
     const dist = Math.abs(currentPrice - ema20[ema20.length - 1]);
     if (dist > currentATR * 2.0) return null;
   }
 
+  // ---- COOLDOWN ----
   const cooldownKey = `${pair.symbol}_${interval}`;
   const lastFire = cooldown[cooldownKey] || 0;
   const candleMs = interval === '1h' ? 3600000 : interval === '4h' ? 14400000 : interval === '15m' ? 900000 : 300000;
@@ -480,25 +514,26 @@ async function updateTradeOutcomes() {
   }
 }
 
-// ========== EMAIL NOTIFICATIONS (Brevo) ==========
+// ========== EMAIL NOTIFICATIONS (SendGrid) ==========
 async function sendEmailNotifications(signals) {
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = process.env.SENDGRID_API_KEY;
   if (!apiKey) return;
 
   const highConf = signals.filter(s => (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 6);
   if (highConf.length === 0) return;
 
   const top = highConf.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/12)`).join(', ');
-  const html = `<h3>Strong 1h/4h Signals</h3><p>${top}</p><p>Check your app.</p>`;
 
   try {
-    await axios.post('https://api.brevo.com/v3/smtp/email', {
-      sender: { name: 'Crypto Signals', email: process.env.FROM_EMAIL },
-      to: [{ email: process.env.ALERT_EMAIL }],
+    await axios.post('https://api.sendgrid.com/v3/mail/send', {
+      personalizations: [{ to: [{ email: process.env.ALERT_EMAIL }] }],
+      from: { email: process.env.FROM_EMAIL, name: 'Crypto Signals' },
       subject: `🔔 ${highConf.length} strong signal(s)`,
-      htmlContent: html
-    }, { headers: { 'api-key': apiKey, 'Content-Type': 'application/json' } });
-    console.log('✅ Email sent');
+      content: [{ type: 'text/html', value: `<h3>New Signals</h3><p>${top}</p><p>Check your app.</p>` }]
+    }, {
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+    });
+    console.log('✅ Email sent via SendGrid');
   } catch (err) {
     console.error('❌ Email failed:', err.response?.data || err.message);
   }
@@ -583,18 +618,20 @@ setInterval(tick, 10 * 60 * 1000);
 app.get('/api/signals', (req, res) => res.json(latestSignals));
 app.get('/api/history', (req, res) => res.json(signalHistory));
 
-// All Stats – now shows ALL closed trades (including 5m/15m)
+// ---- ALL STATS: counts ALL closed trades (all timeframes) ----
 app.get('/api/stats', (req, res) => {
   const closed = signalHistory.filter(t => t.outcome);
   const wins = closed.filter(t => t.outcome === 'win').length;
   res.json({ wins, total: closed.length, winRate: closed.length ? ((wins / closed.length) * 100).toFixed(1) : 0 });
 });
 
+// ---- 1H/4H STATS: only those timeframes ----
 app.get('/api/stats/1h4h', (req, res) => {
   const closed = signalHistory.filter(t => t.outcome && (t.timeframe === '1h' || t.timeframe === '4h'));
   const wins = closed.filter(t => t.outcome === 'win').length;
   res.json({ wins, total: closed.length, winRate: closed.length ? ((wins / closed.length) * 100).toFixed(1) : 0 });
 });
+
 app.get('/api/stats/alignment', (req, res) => {
   const closed = signalHistory.filter(t => t.outcome && (t.timeframe === '1h' || t.timeframe === '4h'));
   const alignmentMap = {};
@@ -610,6 +647,7 @@ app.get('/api/stats/alignment', (req, res) => {
   }
   res.json(result);
 });
+
 app.get('/api/stats/pairs', (req, res) => {
   const closed = signalHistory.filter(t => t.outcome && (t.timeframe === '1h' || t.timeframe === '4h'));
   const pairMap = {};
@@ -625,6 +663,7 @@ app.get('/api/stats/pairs', (req, res) => {
   }
   res.json(result);
 });
+
 app.get('/api/prices', async (req, res) => {
   const prices = {};
   for (const pair of PAIRS) {
@@ -633,6 +672,7 @@ app.get('/api/prices', async (req, res) => {
   }
   res.json(prices);
 });
+
 app.post('/api/autotrade', (req, res) => res.json({ success: true }));
 
 io.on('connection', (socket) => { socket.emit('new_signals', latestSignals); });
