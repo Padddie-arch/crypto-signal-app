@@ -317,24 +317,16 @@ function vwap(candles) {
 // ========== FAIR VALUE GAP (FVG) – 13th STRATEGY ==========
 function detectFVG(candles, currentATR) {
   if (candles.length < 3) return { vote: 0, gapType: '' };
-  // Look at last two closed candles (index -3 and -2) for a gap
   const twoBack = candles[candles.length - 3];
   const oneBack = candles[candles.length - 2];
-  const minGap = currentATR * 0.5;   // gap must be at least 0.5 ATR wide
+  const minGap = currentATR * 0.5;
 
-  // Bullish FVG: current price is above a gap left by a strong up move
-  // Bearish FVG: current price is below a gap left by a strong down move
   let vote = 0, gapType = '';
 
-  // Bullish FVG: the low of two candles ago is higher than the high of the previous candle
-  // (price left a gap up that hasn't been filled yet – acts as support)
   if (twoBack.low > oneBack.high && (twoBack.low - oneBack.high) >= minGap) {
-    // Support gap exists below current price? Already above, so vote bullish.
     vote = 1;
     gapType = 'Bullish FVG';
-  }
-  // Bearish FVG: the high of two candles ago is lower than the low of the previous candle
-  else if (twoBack.high < oneBack.low && (oneBack.low - twoBack.high) >= minGap) {
+  } else if (twoBack.high < oneBack.low && (oneBack.low - twoBack.high) >= minGap) {
     vote = -1;
     gapType = 'Bearish FVG';
   }
@@ -390,20 +382,20 @@ async function generateSignal(pair, candles, interval, livePrice) {
 
   // ---- FVG (13th strategy) ----
   const fvgResult = detectFVG(candles, currentATR);
-  const fvgVote = fvgResult.vote;   // -1, 0, or 1
+  const fvgVote = fvgResult.vote;
 
   // ---- STRICT PARAMETERS ----
   let baseADX, baseMinActive, minAligned;
-  const TOTAL_STRATEGIES = 13;   // ⬅️ now 13
+  const TOTAL_STRATEGIES = 13;
   if (is4h) {
     baseADX = 22;
     baseMinActive = 5;
-    minAligned = 8;               // was 7/12 → now 8/13
+    minAligned = 8;
   } else if (is1h) {
     baseADX = 18;
     baseMinActive = 4;
-    minAligned = 7;               // was 6/12 → now 7/13
-  } else {                        // 5m/15m
+    minAligned = 7;
+  } else {
     baseADX = interval === '15m' ? 12 : 10;
     baseMinActive = 2;
     minAligned = 1;
@@ -521,7 +513,7 @@ async function generateSignal(pair, candles, interval, livePrice) {
     rsi: lastRSI, macd: macdRes.hist, volumeSpike,
     adx: adxRes.adx, vwap: vwapVal,
     divergence: div.divergence || '', pattern: candlePat.pattern || '',
-    fvg: fvgResult.gapType || '',        // show on signal card
+    fvg: fvgResult.gapType || '',
     newsHeadlines: news.headlines,
     trendDir,
     priceChange5,
@@ -551,28 +543,26 @@ async function updateTradeOutcomes() {
   }
 }
 
-// ========== EMAIL NOTIFICATIONS (SendGrid) ==========
+// ========== ALERTS VIA TELEGRAM (replaces email) ==========
 async function sendEmailNotifications(signals) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  if (!apiKey) return;
+  const token = process.env.TELEGRAM_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
 
   const highConf = signals.filter(s => (s.timeframe === '1h' || s.timeframe === '4h') && s.aligned >= 6);
   if (highConf.length === 0) return;
 
-  const top = highConf.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/13)`).join(', ');
+  const top = highConf.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/13)`).join('\n');
+  const msg = `🔔 Strong Signals:\n${top}\n\nCheck your app.`;
 
   try {
-    await axios.post('https://api.sendgrid.com/v3/mail/send', {
-      personalizations: [{ to: [{ email: process.env.ALERT_EMAIL }] }],
-      from: { email: process.env.FROM_EMAIL, name: 'Crypto Signals' },
-      subject: `🔔 ${highConf.length} strong signal(s)`,
-      content: [{ type: 'text/html', value: `<h3>New Signals</h3><p>${top}</p><p>Check your app.</p>` }]
-    }, {
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId,
+      text: msg
     });
-    console.log('✅ Email sent via SendGrid');
+    console.log('✅ Telegram alert sent');
   } catch (err) {
-    console.error('❌ Email failed:', err.response?.data || err.message);
+    console.error('❌ Telegram alert failed:', err.response?.data || err.message);
   }
 }
 
@@ -638,7 +628,7 @@ async function tick() {
       signalHistory = [...signalHistory, ...newSignals].slice(-MAX_HISTORY);
       io.emit('new_signals', latestSignals);
       sendPushNotifications(newSignals);
-      sendEmailNotifications(newSignals);
+      sendEmailNotifications(newSignals);   // now Telegram
       console.log(`${newSignals.length} signals emitted`);
     } else {
       console.log('No signals – filters too strict.');
