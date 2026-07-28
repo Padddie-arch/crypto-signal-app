@@ -496,7 +496,7 @@ async function updateTradeOutcomes() {
   }
 }
 
-// ========== ALERTS VIA TELEGRAM ==========
+// ========== ALERTS VIA TELEGRAM (WITH FULL SIGNAL DETAILS) ==========
 async function sendTelegramAlerts(signals) {
   const token = process.env.TELEGRAM_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -505,8 +505,17 @@ async function sendTelegramAlerts(signals) {
   const highConf = signals.filter(s => s.aligned >= 5);
   if (highConf.length === 0) return;
 
-  const top = highConf.slice(0, 3).map(s => `${s.pair} ${s.direction} (${s.aligned}/12)`).join('\n');
-  const msg = `🔔 Strong Signals:\n${top}\n\nCheck your app.`;
+  // Build a detailed message for up to 3 strongest signals
+  const top = highConf.slice(0, 3).map(s => {
+    const priceStr = `$${Number(s.price).toFixed(2)}`;
+    const slStr = `$${Number(s.stopLoss).toFixed(2)}`;
+    const tpStr = `$${Number(s.takeProfit).toFixed(2)}`;
+    return `${s.pair} ${s.direction} (${s.aligned}/12)\n` +
+           `Price: ${priceStr} | TF: ${s.timeframe}\n` +
+           `SL: ${slStr} | TP: ${tpStr}`;
+  }).join('\n\n');
+
+  const msg = `🔔 Strong Signals:\n\n${top}`;
 
   try {
     await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
