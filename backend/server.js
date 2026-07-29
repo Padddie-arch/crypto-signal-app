@@ -496,7 +496,7 @@ async function updateTradeOutcomes() {
   }
 }
 
-// ========== ALERTS VIA TELEGRAM (WITH FULL SIGNAL DETAILS) ==========
+// ========== ALERTS VIA TELEGRAM (6‑DECIMAL PLACES) ==========
 async function sendTelegramAlerts(signals) {
   const token = process.env.TELEGRAM_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -505,11 +505,10 @@ async function sendTelegramAlerts(signals) {
   const highConf = signals.filter(s => s.aligned >= 5);
   if (highConf.length === 0) return;
 
-  // Build a detailed message for up to 3 strongest signals
   const top = highConf.slice(0, 3).map(s => {
-    const priceStr = `$${Number(s.price).toFixed(2)}`;
-    const slStr = `$${Number(s.stopLoss).toFixed(2)}`;
-    const tpStr = `$${Number(s.takeProfit).toFixed(2)}`;
+    const priceStr = `$${Number(s.price).toFixed(6)}`;
+    const slStr = `$${Number(s.stopLoss).toFixed(6)}`;
+    const tpStr = `$${Number(s.takeProfit).toFixed(6)}`;
     return `${s.pair} ${s.direction} (${s.aligned}/12)\n` +
            `Price: ${priceStr} | TF: ${s.timeframe}\n` +
            `SL: ${slStr} | TP: ${tpStr}`;
