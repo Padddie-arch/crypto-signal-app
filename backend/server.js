@@ -312,24 +312,7 @@ function vwap(candles) {
   return sumVol > 0 ? sumTPV / sumVol : candles[candles.length - 1].close;
 }
 
-// ========== DYNAMIC STOP LOSS ==========
-function dynamicStopLoss(candles, direction, currentPrice, currentATR) {
-  const highs = candles.map(c => c.high);
-  const lows = candles.map(c => c.low);
-  const recentHigh = Math.max(...highs.slice(-21, -1));
-  const recentLow = Math.min(...lows.slice(-21, -1));
-  if (direction === 'BUY') {
-    const structureStop = recentLow - currentATR * 0.5;
-    const atrStop = currentPrice - currentATR * 1.0;
-    return Math.max(structureStop, atrStop);
-  } else {
-    const structureStop = recentHigh + currentATR * 0.5;
-    const atrStop = currentPrice + currentATR * 1.0;
-    return Math.min(structureStop, atrStop);
-  }
-}
-
-// ========== SIGNAL GENERATION (BALANCED, 12 STRATEGIES) ==========
+// ========== SIGNAL GENERATION (TIGHT FILTERS) ==========
 async function generateSignal(pair, candles, interval, livePrice) {
   const closes = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
@@ -339,29 +322,30 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const currentATR = atr(candles, 14);
   const is4h = (interval === '4h');
 
+  // ---- Volatility filter ----
   if (currentATR / currentPrice < 0.005) return null;
 
+  // ---- Volume filter (above average AND rising for both) ----
   const avgVolume20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
   const lastVolume = volumes[volumes.length - 1];
-  if (lastVolume < avgVolume20) return null;
-  if (is4h) {
-    const prevVolume = volumes[volumes.length - 2];
-    if (lastVolume <= prevVolume) return null;
-  }
+  const prevVolume = volumes[volumes.length - 2];
+  if (lastVolume < avgVolume20 || lastVolume <= prevVolume) return null;
 
+  // ---- News ----
   const news = await fetchNewsSentiment(pair.symbol);
   const newsVote = (news.headlines.length >= 3 && news.strength >= 2) ? news.sentiment : 0;
 
+  // ---- Tight parameters ----
   const TOTAL_STRATEGIES = 12;
   let baseADX, baseMinActive, minAligned;
   if (is4h) {
-    baseADX = 20;
+    baseADX = 22;
+    baseMinActive = 4;
+    minAligned = 6;
+  } else {
+    baseADX = 18;
     baseMinActive = 3;
     minAligned = 5;
-  } else {
-    baseADX = 15;
-    baseMinActive = 2;
-    minAligned = 4;
   }
 
   const rsiOversold = 25;
@@ -417,36 +401,39 @@ async function generateSignal(pair, candles, interval, livePrice) {
   const confidence = Math.round((aligned / TOTAL_STRATEGIES) * 100);
   const direction = buyVotes > sellVotes ? 'BUY' : 'SELL';
 
+  // ---- 50 EMA trend ----
   const ema50 = ema(closes, 50);
   const recentEma50 = ema50.slice(-5);
   const slope50 = recentEma50[4] - recentEma50[0];
   const trendDir = slope50 > 0 ? 'up' : slope50 < 0 ? 'down' : 'flat';
   if (direction === 'BUY' && trendDir === 'down') return null;
   if (direction === 'SELL' && trendDir === 'up') return null;
-  if (is4h && trendDir === 'flat') return null;
+  if (trendDir === 'flat') return null;   // no flat markets
 
-  if (is4h) {
-    const ema200 = ema(closes, 200);
-    const ema200Now = ema200[ema200.length - 1];
-    if (direction === 'BUY' && currentPrice <= ema200Now) return null;
-    if (direction === 'SELL' && currentPrice >= ema200Now) return null;
-  }
+  // ---- 200 EMA (both timeframes) ----
+  const ema200 = ema(closes, 200);
+  const ema200Now = ema200[ema200.length - 1];
+  if (direction === 'BUY' && currentPrice <= ema200Now) return null;
+  if (direction === 'SELL' && currentPrice >= ema200Now) return null;
 
+  // ---- VWAP ----
   if (direction === 'BUY' && currentPrice <= vwapVal) return null;
   if (direction === 'SELL' && currentPrice >= vwapVal) return null;
 
+  // ---- Last candle confirmation ----
   const lastCandle = candles[candles.length - 1];
   if (direction === 'BUY' && lastCandle.close <= lastCandle.open) return null;
   if (direction === 'SELL' && lastCandle.close >= lastCandle.open) return null;
 
-  if (is4h && adxRes.adx <= adxRes.adxPrev) return null;
+  // ---- ADX rising (both timeframes) ----
+  if (adxRes.adx <= adxRes.adxPrev) return null;
 
-  if (is4h) {
-    const ema20 = ema(closes, 20);
-    const dist = Math.abs(currentPrice - ema20[ema20.length - 1]);
-    if (dist > currentATR * 2.0) return null;
-  }
+  // ---- Price near 20 EMA (both timeframes) ----
+  const ema20 = ema(closes, 20);
+  const dist = Math.abs(currentPrice - ema20[ema20.length - 1]);
+  if (dist > currentATR * 2.0) return null;
 
+  // ---- Cooldown ----
   const cooldownKey = `${pair.symbol}_${interval}`;
   const lastFire = cooldown[cooldownKey] || 0;
   const candleMs = interval === '1h' ? 3600000 : 14400000;
@@ -454,8 +441,13 @@ async function generateSignal(pair, candles, interval, livePrice) {
   if (Date.now() - lastFire < cooldownMs) return null;
   cooldown[cooldownKey] = Date.now();
 
-  const stopLoss = dynamicStopLoss(candles, direction, currentPrice, currentATR);
-  const takeProfit = direction === 'BUY' ? currentPrice + currentATR * 3.0 : currentPrice - currentATR * 3.0;
+  // ---- Wider stop loss, realistic take profit ----
+  const stopLoss = direction === 'BUY'
+    ? currentPrice - currentATR * 2.0
+    : currentPrice + currentATR * 2.0;
+  const takeProfit = direction === 'BUY'
+    ? currentPrice + currentATR * 2.5
+    : currentPrice - currentATR * 2.5;
   const trailingStop = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
   const dcaPrice = direction === 'BUY' ? currentPrice - currentATR * 1.0 : currentPrice + currentATR * 1.0;
   const priceChange5 = closes.length >= 6 ? ((currentPrice - closes[closes.length - 6]) / closes[closes.length - 6] * 100).toFixed(2) : '0.00';
